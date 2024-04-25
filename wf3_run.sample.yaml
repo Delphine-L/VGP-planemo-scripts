@@ -1,0 +1,21 @@
+Pacbio Reads Collection:
+  class: Collection
+  collection_type: list
+  elements:["Pacbio"]
+Meryl Database:
+  class: File
+  galaxy_id: "["read_db"]"
+Genomescope Summary:
+  class: File
+  galaxy_id: "["summary"]"
+Bits for Hifiasm bloom filter: 32
+Homozygous Read Coverage : null
+Genomescope Model Parameters: 
+  class: File
+  galaxy_id: "["model_params"]"
+Bits for Hifiasm bloom filter: 32
+SAK input file (Optional): null
+Homozygous Read Coverage: null
+Lineage: vertebrata_odb10
+Name of primary assembly: Primary
+Name of alternate assembly: Alternate
