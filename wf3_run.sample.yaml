@@ -8,14 +8,12 @@ Meryl Database:
 Genomescope Summary:
   class: File
   galaxy_id: "["summary"]"
-Bits for Hifiasm bloom filter: 32
+Bits for Hifiasm bloom filter: 37
 Homozygous Read Coverage : null
 Genomescope Model Parameters: 
   class: File
   galaxy_id: "["model_params"]"
-Bits for Hifiasm bloom filter: 32
 SAK input file (Optional): null
-Homozygous Read Coverage: null
 Lineage: vertebrata_odb10
 Name of primary assembly: Primary
 Name of alternate assembly: Alternate
