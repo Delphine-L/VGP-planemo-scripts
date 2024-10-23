@@ -59,3 +59,14 @@ For all :
 
 
 ## Prepare files for workflow 3 or 4 
+
+
+You need: 
+1. The table named `wf_run_$Input_table` 
+2. The prefix for the yaml files used to run the workflow (e.g. `./test` will produce files called `./test_wf3_$Specimen_ID.yaml` )
+
+````bash
+python VGP-planemo-scripts/prepare_wf3.py wf_run_$Input_table $Yaml_prefix
+````
+
+To change the parameters of all jobs, modify the file `wf1_run.sample.yaml`
