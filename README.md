@@ -37,7 +37,7 @@ You need:
 2. The prefix for the yaml files used to run the workflow (e.g. `./test` will produce files called `./test_wf1_$Specimen_ID.yaml` )
 
 ````bash
-sh VGP-planemo-scripts/prepare_wf1.py $Input_table $Yaml_prefix
+python VGP-planemo-scripts/prepare_wf1.py $Input_table $Yaml_prefix
 ````
 
 To change the parameters of all jobs, modify the file `wf1_run.sample.yaml`
