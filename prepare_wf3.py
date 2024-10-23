@@ -39,7 +39,7 @@ for i,row in infos.iterrows():
     list_histories.append(history_path)
     invocation_path="https://usegalaxy.org/workflows/invocations/"+reswf1["tests"][0]["data"]['invocation_details']['details']['invocation_id']
     list_invocation.append(invocation_path)
-    genomescope_view="https://usegalaxy.org/datasets/"+reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Genomescope']['outputs']['linear_plot']['id']+"/preview"
+    genomescope_view="https://usegalaxy.org/datasets/"+reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['linear_plot']['id']+"/preview"
     list_genomescope.append(genomescope_view)
     for i in list_pacbio:
         name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
@@ -50,9 +50,9 @@ for i,row in infos.iterrows():
     with open(path_script+"/wf3_run.sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
     filedata = filedata.replace('["Pacbio"]', str_elements )
-    filedata = filedata.replace('["read_db"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['4. Meryl on Pacbio Reads']['outputs']['read_db']['id'])
-    filedata = filedata.replace('["summary"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Genomescope']['outputs']['summary']['id'])
-    filedata = filedata.replace('["model_params"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Genomescope']['outputs']['model_params']['id'])
+    filedata = filedata.replace('["read_db"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['4. Unnamed step']['outputs']['read_db']['id'])
+    filedata = filedata.replace('["summary"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['summary']['id'])
+    filedata = filedata.replace('["model_params"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['model_params']['id'])
     with open(yml_file, 'w') as yaml_wf3:
         yaml_wf3.write(filedata)
 
