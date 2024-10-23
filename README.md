@@ -58,7 +58,7 @@ For all :
 ## Wait for the invocations to be ready before preparing files for workflow 3 or 4
 
 
-## Prepare files for workflow 3 or 4 
+## Prepare files for workflow 3 (or 4) 
 
 
 You need: 
@@ -69,4 +69,4 @@ You need:
 python VGP-planemo-scripts/prepare_wf3.py wf_run_$Input_table $Yaml_prefix
 ````
 
-To change the parameters of all jobs, modify the file `wf1_run.sample.yaml`
+To change the parameters of all jobs, modify the file `wf3_run.sample.yaml`
