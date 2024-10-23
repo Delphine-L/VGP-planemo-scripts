@@ -44,7 +44,7 @@ for i,row in infos.iterrows():
     for i in list_pacbio:
         name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
         str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
-    cmd_line="planemo run Assembly-Hifi-only-VGP3.ga "+yml_file+" --engine external_galaxy --galaxy_url https://usegalaxy.org/ --galaxy_user_key $MAINKEY --history_name "+history_id+" --no_wait --test_output_json "+res_file+" &"
+    cmd_line="planemo run Assembly-Hifi-only-VGP3.ga "+yml_file+" --engine external_galaxy --galaxy_url https://usegalaxy.org/ --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
     commands.append(cmd_line)
     print(cmd_line)
     with open(path_script+"/wf3_run.sample.yaml", 'r') as sample_file:
