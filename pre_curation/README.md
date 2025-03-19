@@ -9,11 +9,11 @@ See parent directory.
 ### Input 
 
 Create a table with one species per line and with the following columns :
-	1. The species name with underscores and no spaces. E.g. : `Peponocephala_electra`
-	2. The Species ID. E.g. : `mPepEle1`
-	3. The path on genomeark : E.g. : `genomeark/species/Ictidomys_tridecemlineatus/mIctTri1/`
-	4. The assembly technology used : `HiC`, `standard`, or `trio` (careful of the word casing)
-	5. The Technology used for generating the Hi-C data : `arima` or `dovetail`
+1. The species name with underscores and no spaces. E.g. : `Peponocephala_electra`
+2. The Species ID. E.g. : `mPepEle1`
+3. The path on genomeark : E.g. : `genomeark/species/Ictidomys_tridecemlineatus/mIctTri1/`
+4. The assembly technology used : `HiC`, `standard`, or `trio` (careful of the word casing)
+5. The Technology used for generating the Hi-C data : `arima` or `dovetail`
 
 ### Run the Script to fetch the data paths
 
@@ -25,16 +25,16 @@ sh VGP-planemo-scripts/pre_curation/get_files_pre_curation.sh table_of_species.t
 ```
 
 The script will generate a table with the path for all the necessary files with the columns:
-	1. Species name
-	2. Species ID
-	3. Assembly method
-	4. Hi-C Technology
-	5. Names of Fastq files containing the HiFi reads
-	6. Names of Fastq files containing the Hi-C forward reads
-	7. Names of Fastq files containing the Hi-C reverse reads
-	8. The path to  Haploptype 1 (or primary or paternal)
-	9. The path to  Haploptype 2 (or alt or maternal)
-  
+1. Species name
+2. Species ID
+3. Assembly method
+4. Hi-C Technology
+5. Names of Fastq files containing the HiFi reads
+6. Names of Fastq files containing the Hi-C forward reads
+7. Names of Fastq files containing the Hi-C reverse reads
+8. The path to  Haploptype 1 (or primary or paternal)
+9. The path to  Haploptype 2 (or alt or maternal)
+
 
 ### Verify the table
 
