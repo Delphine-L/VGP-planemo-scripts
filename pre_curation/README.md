@@ -39,8 +39,8 @@ The script will generate a table with the path for all the necessary files with 
 ### Verify the table
 
 Look at :
-	- Empty columns. The data may not be at the right place on the genomeark repo. If so, remove the line and run this specie manually
-	- That the forward and reverse Hi-C files match. In cases where the Hi_C files names are on the format `species_1.1` and `species_1.2`, the script has a hard time determining which file is forward and wich is reverse. In this situation, correct manually in the table. 
+- Empty columns. The data may not be at the right place on the genomeark repo. If so, remove the line and run this specie manually
+- That the forward and reverse Hi-C files match. In cases where the Hi_C files names are on the format `species_1.1` and `species_1.2`, the script has a hard time determining which file is forward and wich is reverse. In this situation, correct manually in the table. 
 
 ## Prepare the yaml files and command lines
 
