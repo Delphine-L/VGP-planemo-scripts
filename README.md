@@ -1,7 +1,9 @@
-# VGP-planemo-scripts
+# Run Assembly Scripts through the command line
 
 Scripts to run the VGP pipelines through planemo - Do not Support Trio data yet
 Designed to import data from the Genomeark AWS repository.
+
+Note : For Pre-Curation Workflow, go to the pre_curation folder after installing the dependencies. 
 
 ## Dependencies
 
@@ -50,9 +52,9 @@ For each Species :
 
 For all : 
 - A table named `wf_run_$Input_table` containing the input table plus columns listing : 
-  - The yaml file to use for the workflow
-  - The json file that will contain the results of the workflow
-  - The command line to paste on your shell to run the workflow on Galaxy.org (Change the command line if you want to run against another galaxy instance). Set or replace `$MAINKEY` variable with your Galaxy API ID.
+  - The yaml file to use for running workflow 1
+  - The json file that will contain the results of the workflow 1 run
+  - The command line to paste on your shell to run workflow 1 on Galaxy.org (Change the command line if you want to run against another galaxy instance). Set or replace `$MAINKEY` variable with your Galaxy API ID.
 
 
 ## Wait for the invocations to be ready before preparing files for workflow 3 or 4
@@ -70,3 +72,14 @@ python VGP-planemo-scripts/prepare_wf3.py wf_run_$Input_table $Yaml_prefix
 ````
 
 To change the parameters of all jobs, modify the file `wf3_run.sample.yaml`
+
+### Outputs : 
+
+For each Species : 
+- A Yaml File containing the input paths and the job parameters named `$Yaml_prefix_wf3_$Specimen_ID.yml` (To modify individual job parameter modify these)
+
+For all : 
+- The updated table named `wf_run_$Input_table` containing the previous data plus columns listing : 
+  - The yaml file to use for running workflow 3 or 4
+  - The json file that will contain the results of the workflow 3 or 4 run
+  - The command line to paste on your shell to run workflow 3 or 4 on Galaxy.org (Change the command line if you want to run against another galaxy instance). Set or replace `$MAINKEY` variable with your Galaxy API ID.
