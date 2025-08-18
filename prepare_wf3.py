@@ -26,7 +26,6 @@ for i,row in infos.iterrows():
     spec_name=infos.iloc[i][0]
     spec_id=infos.iloc[i][1]
     str_elements=""
-    list_pacbio=infos.iloc[i][2].split(' ')
     yml_file=args.yaml+"_wf3_"+spec_id+".yml"
     list_yml.append(yml_file)
     res_file="wf3_invocation_"+spec_id+".json"
@@ -34,6 +33,7 @@ for i,row in infos.iterrows():
     print(json_wf1)
     wf1json=open(json_wf1)
     reswf1=json.load(wf1json)
+    pacbio_collection=reswf1["tests"][0]["data"]['invocation_details']['steps']['2. Collection of Pacbio Data']['output_collections']['output']['id']
     history_id=reswf1["tests"][0]["data"]['invocation_details']['details']['history_id']
     history_path="https://usegalaxy.org/histories/view?id="+history_id
     list_histories.append(history_path)
@@ -41,15 +41,14 @@ for i,row in infos.iterrows():
     list_invocation.append(invocation_path)
     genomescope_view="https://usegalaxy.org/datasets/"+reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['linear_plot']['id']+"/preview"
     list_genomescope.append(genomescope_view)
-    for i in list_pacbio:
-        name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
-        str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
-    cmd_line="planemo run Assembly-Hifi-only-VGP3.ga "+yml_file+" --engine external_galaxy --galaxy_url https://usegalaxy.org/ --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
+    cmd_line="planemo run Assembly-Hifi-only-VGP3.ga "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/ --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
     commands.append(cmd_line)
     print(cmd_line)
     with open(path_script+"/wf3_run.sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
-    filedata = filedata.replace('["Pacbio"]', str_elements )
+    filedata = filedata.replace('["species_name"]', spec_name )
+    filedata = filedata.replace('["assembly_name"]', spec_id )
+    filedata = filedata.replace('["Pacbio"]', pacbio_collection )
     filedata = filedata.replace('["read_db"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['4. Unnamed step']['outputs']['read_db']['id'])
     filedata = filedata.replace('["summary"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['summary']['id'])
     filedata = filedata.replace('["model_params"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['model_params']['id'])

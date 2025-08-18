@@ -26,9 +26,7 @@ for i,row in infos.iterrows():
     spec_name=infos.iloc[i][0]
     spec_id=infos.iloc[i][1]
     str_elements=""
-    str_hic_f=""
-    str_hic_r=""
-    list_pacbio=infos.iloc[i][2].split(' ')
+    str_hic=""
     hic_f=infos.iloc[i][3].split(' ')
     hic_r=infos.iloc[i][4].split(' ')
     yml_file=args.yaml+"_wf4_"+spec_id+".yml"
@@ -38,33 +36,32 @@ for i,row in infos.iterrows():
     print(json_wf1)
     wf1json=open(json_wf1)
     reswf1=json.load(wf1json)
+    pacbio_collection=reswf1["tests"][0]["data"]['invocation_details']['steps']['2. Collection of Pacbio Data']['output_collections']['output']['id']
     history_id=reswf1["tests"][0]["data"]['invocation_details']['details']['history_id']
     history_path="https://usegalaxy.org/histories/view?id="+history_id
     list_histories.append(history_path)
     invocation_path="https://usegalaxy.org/workflows/invocations/"+reswf1["tests"][0]["data"]['invocation_details']['details']['invocation_id']
     list_invocation.append(invocation_path)
-    genomescope_view="https://usegalaxy.org/datasets/"+reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['linear_plot']['id']+"/preview"
+    genomescope_view="https://usegalaxy.org/datasets/"+reswf1["tests"][0]["data"]['invocation_details']['steps']['12. Unnamed step']['outputs']['linear_plot']['id']+"/preview"
     list_genomescope.append(genomescope_view)
-    for i in list_pacbio:
-        name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
-        str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
-    for i in hic_f:
-        name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
-        str_hic_f=str_hic_f+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/arima/"+i+"\n    filetype: fastqsanger.gz"
-    for i in hic_r:
-        name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
-        str_hic_r=str_hic_r+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/arima/"+i+"\n    filetype: fastqsanger.gz"
-    cmd_line="planemo run Assembly-Hifi-HiC-phasing-VGP4.ga "+yml_file+" --engine external_galaxy --galaxy_url https://usegalaxy.org/ --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
+    if len(hic_f)!=len(hic_r):
+        raise SystemExit("Number of Hi-C forward reads does not match number of Hi-C reverse reads. Check the table and correct if necessary.")
+    for i in range(0,len(hic_f)):
+        namef=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_f[i])
+        namer=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_r[i])
+        str_hic=str_hic+"\n  - class: Collection\n    type: paired\n    identifier: "+namef+"\n    elements:\n    - identifier: forward\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/arima/"+hic_f[i]+"\n      filetype: fastqsanger.gz\n    - identifier: reverse\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/arima/"+hic_r[i]+"\n      filetype: fastqsanger.gz"
+    cmd_line="planemo run Assembly-Hifi-HiC-phasing-VGP4.ga "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/ --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
     commands.append(cmd_line)
     print(cmd_line)
     with open(path_script+"/wf4_run.sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
-    filedata = filedata.replace('["Pacbio"]', str_elements )
-    filedata = filedata.replace('["hic_f"]', str_hic_f )
-    filedata = filedata.replace('["hic_r"]', str_hic_r )
-    filedata = filedata.replace('["read_db"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['4. Unnamed step']['outputs']['read_db']['id'])
-    filedata = filedata.replace('["summary"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['summary']['id'])
-    filedata = filedata.replace('["model_params"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['6. Unnamed step']['outputs']['model_params']['id'])
+    filedata = filedata.replace('["Pacbio"]', pacbio_collection )
+    filedata = filedata.replace('["hic"]', str_hic)
+    filedata = filedata.replace('["species_name"]', spec_name )
+    filedata = filedata.replace('["assembly_name"]', spec_id )
+    filedata = filedata.replace('["read_db"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['10. Unnamed step']['outputs']['read_db']['id'])
+    filedata = filedata.replace('["summary"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['12. Unnamed step']['outputs']['summary']['id'])
+    filedata = filedata.replace('["model_params"]', reswf1["tests"][0]["data"]['invocation_details']['steps']['12. Unnamed step']['outputs']['model_params']['id'])
     with open(yml_file, 'w') as yaml_wf3:
         yaml_wf3.write(filedata)
 

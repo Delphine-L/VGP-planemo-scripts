@@ -30,9 +30,11 @@ for i,row in infos.iterrows():
     with open(path_script+"/wf1_run.sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
     filedata = filedata.replace('["Pacbio"]', str_elements )
+    filedata = filedata.replace('["species_name"]', spec_name )
+    filedata = filedata.replace('["assembly_name"]', spec_id )
     with open(yml_file, 'w') as yaml_wf1:
         yaml_wf1.write(filedata)
-    cmd_line="planemo run kmer-profiling-hifi-VGP1.ga "+yml_file+" --engine external_galaxy --galaxy_url https://usegalaxy.org/ --galaxy_user_key $MAINKEY --history_name "+spec_id+" --no_wait --test_output_json "+res_file+" &"
+    cmd_line="planemo run kmer-profiling-hifi-VGP1.ga "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/ --galaxy_user_key $MAINKEY --history_name "+spec_id+" --no_wait --test_output_json "+res_file+" &"
     commands.append(cmd_line)
     print(cmd_line)
 infos[6]=list_yml

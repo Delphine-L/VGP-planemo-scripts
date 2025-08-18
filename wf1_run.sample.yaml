@@ -3,4 +3,6 @@ Collection of Pacbio Data:
   collection_type: list
   elements:["Pacbio"]
 'K-mer length ': 21
-Ploidy: 1
+Ploidy: 2
+Species Name:  "["species_name"]"
+Assembly Name:  "["assembly_name"]"

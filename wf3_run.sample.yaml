@@ -1,7 +1,7 @@
 Pacbio Reads Collection:
   class: Collection
   collection_type: list
-  elements:["Pacbio"]
+  galaxy_id:["Pacbio"]
 Meryl Database:
   class: File
   galaxy_id: "["read_db"]"
@@ -17,3 +17,5 @@ SAK input file (Optional): null
 Lineage: vertebrata_odb10
 Name of primary assembly: Primary
 Name of alternate assembly: Alternate
+Species Name:  "["species_name"]"
+Assembly Name:  "["assembly_name"]"
