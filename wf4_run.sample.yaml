@@ -1,4 +1,4 @@
-Pacbio Reads Collection:
+Pacbio Reads:
   class: Collection
   collection_type: list
   galaxy_id: ["Pacbio"]
@@ -24,5 +24,5 @@ Trim Hi-C reads?: true
 Hi-C reads:
   class: Collection
   collection_type: list:paired
-  identifier: Hi-C reads
+  identifier: "Hi-C reads"
   elements: ["hic"]
