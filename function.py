@@ -23,7 +23,7 @@ def download_file(url, save_path):
         print(f"File downloaded successfully to: {save_path}")
 
     except requests.exceptions.RequestException as e:
-        print(f"Error downloading file: {e}")
+        print(f"Error downloading file: {e}.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
