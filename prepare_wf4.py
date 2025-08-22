@@ -54,14 +54,6 @@ def main():
     gi = GalaxyInstance(args.instance, args.apikey)
 
 
-    ### Get compatible workflow versions
-
-    #Compatible_workflow="https://github.com/iwc-workflows/Assembly-Hifi-HiC-phasing-VGP4/archive/refs/tags/v0.3.8.zip"
-    #path_compatible="Assembly-Hifi-HiC-phasing-VGP4-0.3.8/Assembly-Hifi-HiC-phasing-VGP4.ga"
-    #archive_name="Assembly-Hifi-HiC-phasing-VGP4"
-    
-    #worfklow_name=function.get_worfklow(Compatible_workflow, path_compatible, archive_name)
-
     Compatible_version=args.wfl_version
     workflow_name="Assembly-Hifi-HiC-phasing-VGP4"
 
@@ -76,15 +68,13 @@ def main():
     list_yml=[]
     list_res=[]
     commands=[]
-    list_histories=[]
-    list_genomescope=[]
     list_reports=[]
     list_invocation=[]
 
 
     for i,row in infos.iterrows():
-        spec_name=row.iloc[0]
-        spec_id=row.iloc[1]
+        spec_name=row['Species']
+        spec_id=row['Assembly']
         species_path="./"+spec_id+"/"
         if row['Invocation_wf1']=='NA':
             json_wf1=infos.iloc[i]['Results_wf1']
@@ -95,9 +85,7 @@ def main():
                 row.loc['Invocation_wf1']=invocation_number
             else:
                 print("Skipped "+spec_id+": No Json or invocation number found")
-                #list_histories.append("NA")
                 list_reports.append("NA")
-                #list_genomescope.append("NA")
                 commands.append("NA")
                 list_res.append("NA")
                 list_yml.append("NA")
@@ -106,11 +94,9 @@ def main():
             invocation_number=row['Invocation_wf1']
         res_file=species_path+"invocations_json/wf4_invocation_"+spec_id+suffix_run+".json"
         yml_file=species_path+"job_files/wf4_"+spec_id+suffix_run+".yml"
-        if os.path.exists(species_path+"job_files/wf4_"+spec_id+suffix_run+".yml"):
+        if os.path.exists(yml_file):
             print("Skipped "+spec_id+": Files and command already generated")
-            #list_histories.append("NA")
             list_reports.append(row['Wf1_Report'])
-            #list_genomescope.append("NA")
             commands.append(row['Wf4_Commands'])
             list_res.append(row['WF4_result_json'])
             list_yml.append(row['WF4_job_yml'])
@@ -119,13 +105,12 @@ def main():
         invocation_state=wf1_inv.summary()['populated_state']
         if invocation_state!='ok':
             print("Skipped "+spec_id+": Invocation incomplete, Status: "+invocation_state+", url: "+args.instance+"/workflows/invocations/"+invocation_number)
-            #list_histories.append("NA")
             list_reports.append("NA")
-            #list_genomescope.append("NA")
             commands.append("NA")
             list_res.append("NA")
             list_yml.append("NA")
             continue
+            
         wf1_inv.__dict__['wrapped']['input_step_parameters']
         pacbio_collection=wf1_inv.__dict__['wrapped']['inputs'][0]['id']
         merylres_id=wf1_inv.__dict__['wrapped']['outputs']['Merged Meryl Database']['id']
@@ -142,13 +127,6 @@ def main():
         list_res.append(res_file)
 
         history_id=wf1_inv.__dict__['history_id']
-        #history_path="https://usegalaxy.org/histories/view?id="+history_id
-        #list_histories.append(history_path)
-
-        #invocation_path="https://usegalaxy.org/workflows/invocations/"+invocation_number
-        #list_invocation.append(invocation_path)
-        #genomescope_view="https://usegalaxy.org/datasets/"+genomescope_linear_plot+"/preview"
-        #list_genomescope.append(genomescope_view)
         if len(hic_f)!=len(hic_r):
             raise SystemExit("Number of Hi-C forward reads does not match number of Hi-C reverse reads. Check the table and correct if necessary.")
         for i in range(0,len(hic_f)):
@@ -178,13 +156,6 @@ def main():
     infos['Invocation_wf4']='NA'
 
     infos.to_csv(args.track_table, sep='\t', header=True, index=False)
-
-  #  QC_frame=pandas.concat([infos[0],infos[1]],axis=1, keys=['Species', 'ID'])
-  #  QC_frame["History"]=list_histories
-  #  QC_frame["Invocation_WF1"]=list_invocation
-  #  QC_frame["Genomescope"]=list_genomescope
-  #  QC_frame['Wf1_Report']=commands
-  #  QC_frame.to_csv("QC_"+args.track_table, sep='\t', header=True, index=False)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,20 @@
+Assembly GFA:
+  class: File
+  filetype: gfa1
+  galaxy_id: "["gfa_assembly"]"
+Assembly Name: "["assembly_name"]"
+Database for Busco Lineage: v5
+Estimated genome size - Parameter File:
+  class: File
+  filetype: txt
+  galaxy_id: "["estimated_size"]"
+Haplotype: "["haplotype"]"
+Hi-C reads:
+  class: Collection
+  collection_type: list:paired
+  galaxy_id: ["hi_c"]
+Lineage: vertebrata_odb10
+Minimum Mapping Quality: '20'
+Restriction enzymes: arima2
+Species Name: "["species_name"]"
+Trim Hi-C Data?: false
