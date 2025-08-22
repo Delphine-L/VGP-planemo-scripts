@@ -26,7 +26,7 @@ def main():
                                             - {Tracking_table}: The tracking table updated with wf4 runs. 
                                             For each species in {table}:
                                             - {assembly_id}/job_files/wf4_{assembly_id}_{suffix}_{haplotype}.yaml: The yaml file with the job inputs and parameters.
-                                            - {assembly_id}/invocations_json/wf4_invocation_{assembly_id}_{suffix}_{haplotype.json:  The json file with the invocation details.
+                                            - {assembly_id}/invocations_json/wf8_{assembly_id}_{suffix}_{haplotype.json:  The json file with the invocation details.
                                             '''))
     parser.add_argument('-t', '--table', dest="track_table",required=True, help='File containing the species and input files (Produced by prepare_wf4.py) ')  
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
@@ -41,7 +41,6 @@ def main():
     haps.add_argument('-2', '--hap2', action='store_true', required=False, help='Scaffold Haplotype 2')  
     haps.add_argument('-p', '--pat', action='store_true', required=False, help='Scaffold paternal haplotype')       
     haps.add_argument('-m', '--mat', action='store_true', required=False, help='Scaffold maternal haplotype')  
-    haps.add_argument('-r', '--pri', action='store_true', required=False, help='Scaffold primary assembly')  
     args = parser.parse_args()
 
     if args.wfl_dir[-1]=="/":
@@ -78,9 +77,6 @@ def main():
         haplotype="Maternal"
         gfa_input='usable hap2 gfa'
         hap_for_path="mat"
-    elif args.pri:
-        haplotype="Primary"
-        hap_for_path="pri"
     else:
         raise SystemExit("Please specify the haplotype being scaffolded")
 
@@ -116,7 +112,7 @@ def main():
         else:
             invocation_number=row['Invocation_wf4']
 
-        res_file=species_path+"invocations_json/wf8_invocation_"+spec_id+suffix_run+"_"+hap_for_path+".json"
+        res_file=species_path+"invocations_json/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".json"
         yml_file=species_path+"job_files/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".yml"
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+"_"+hap_for_path+": Files and command already generated")
