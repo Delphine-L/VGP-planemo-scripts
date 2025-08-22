@@ -17,7 +17,7 @@ You need:
 3. the path of the output table (e.g. list_file.tab)
 
 ````bash
-  sh VGP-planemo-scripts/get_files_names.sh -s  $Species_name -a  $Assembly_ID $output
+  sh VGP-planemo-scripts/get_files_names.sh -s  $Species_name -a  $Assembly_ID -o $output 
 ````
 
 If the output doesn't exist, it will be created, if not the files will be added at the bottom. 
@@ -50,7 +50,7 @@ Taeniopygia_guttata	bTaeGut2	m54306U_210519_154448.hifi_reads.fastq.gz m54306U_2
 You need: 
 1. The name of the table with the paths to the data (output of the previous step)  (-t)
 2. The target Galaxy instance (e.g. `https://usegalaxy.org/`)  (-g)
-32. Optional: a suffix for the analysis (e.g. `2.0` will produce files called `wf1_$S{assembly_ID}_2.0.yaml` )
+3. Optional: a suffix for the analysis (e.g. `2.0` will produce files called `wf1_$S{assembly_ID}_2.0.yaml` )
 
 ````bash
   python prepare_wf1.py -t table_paths.tsv -g https://usegalaxy.org/   -s "2.0"

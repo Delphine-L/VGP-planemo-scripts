@@ -40,7 +40,7 @@ def main():
 
 
     if args.suffix!='':
-        suffix_run='_'+suffix
+        suffix_run='_'+args.suffix
     else:
         suffix_run=''
 
