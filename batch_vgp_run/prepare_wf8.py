@@ -146,15 +146,15 @@ def main():
         elif len(old_cutadapt_res)==1 and len(new_cutadapt_res)==0:
             pacbio_collection=old_cutadapt_res[list(old_cutadapt_res.keys())[0]]['id']
         else : 
-            raise SystemExit("Confusion between Trimmed Pacbio outputs. verify you do not have duplicated labels. ")\
+            raise SystemExit("Confusion between Trimmed Pacbio outputs. verify you do not have duplicated labels. ")
         
         history_id=wf4_inv.__dict__['history_id']
         list_yml.append(yml_file)
         list_res.append(res_file)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/ --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
         commands.append(cmd_line)
         print(cmd_line)
-        with open(path_script+"/wf8_run.sample.yaml", 'r') as sample_file:
+        with open(path_script+"/templates/wf8_run.sample.yaml", 'r') as sample_file:
             filedata = sample_file.read()
         filedata = filedata.replace('["hi_c"]', trimmed_hic)
         filedata = filedata.replace('["species_name"]', spec_name )

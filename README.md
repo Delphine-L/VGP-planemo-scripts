@@ -9,29 +9,18 @@ Note : For Pre-Curation Workflow, go to the pre_curation folder after installing
 
 See the file installs.sh for the list of dependencies
 
-## First step - Add a species to the file tracking table
 
-You need: 
-1. the species name (no space, underscores) (e.g. Taeniopygia_guttata)
-2. the assembly ID (e.g. bTaeGut2)
-3. the path of the output table (e.g. list_file.tab)
+## First step - Prepare a file with the species informations
+
+Create a tabulated file with the following columns:
+1. Species Name (no space, underscores) (e.g. Taeniopygia_guttata)
+2. Assembly ID (e.g. bTaeGut2)
+
+Usage 
 
 ````bash
-  sh VGP-planemo-scripts/get_files_names.sh -s  $Species_name -a  $Assembly_ID -o $output 
+  python <path to scripts>/batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> 
 ````
-
-If the output doesn't exist, it will be created, if not the files will be added at the bottom. 
-
-To prepare several species at one, create a tabulated file with the following columns:
-1. Species Name
-2. Assembly ID
-
-And use awk : 
-
-```bash
-  awk -F'\t' '{cmd = "sh get_files_names.sh -s " $1 " -a " $2 " -o  $output "; system(cmd)}' $table_with_species
-```
-
 
 ### Output : 
 
@@ -43,6 +32,12 @@ e.g.
 Taeniopygia_guttata	bTaeGut2	m54306U_210519_154448.hifi_reads.fastq.gz m54306U_210521_004211.hifi_reads.fastq.gz m54306Ue_210629_211205.hifi_reads.fastq.gz m54306Ue_210719_083927.hifi_reads.fastq.gz m64055e_210624_223222.hifi_reads.fastq.gz	bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L1_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L2_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L3_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L4_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L5_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L6_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L7_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L8_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMMCCXY_L6_R1.fq.gz	bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L1_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L2_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L3_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L4_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L5_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L6_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L7_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L8_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMMCCXY_L6_R2.fq.gz	bTaeGut2_Saphyr_DLE1_3172351.cmap
 ````
 
+### Add a species to the generated table
+
+Usage:
+````bash
+  python <path to scripts>/batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> --add -s <Species Name> -a <Species ID>
+````
 
 
 ## Prepare files for Workflow 1 
@@ -58,7 +53,7 @@ Inputs:
 Usage: 
 
 ````bash
-  python prepare_wf1.py -t <Table with file paths> -g <Galaxy url>  -w <Workflow Directory>  -v <Workflow version> -s <Suffix> 
+  python <path to scripts>/batch_vgp_run/prepare_wf1.py -t <Table with file paths> -g <Galaxy url>  -w <Workflow Directory>  -v <Workflow version> -s <Suffix> 
 ````
 
 ### Output : 
@@ -99,12 +94,12 @@ Inputs:
 
 Usage workflow 4:
 ````bash
-  python prepare_wf4.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key> -w <workflow directory> -v <Optional workflow version> -s <Optional suffix>
+  python <path to scripts>/batch_vgp_run/prepare_wf4.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key> -w <workflow directory> -v <Optional workflow version> -s <Optional suffix>
 ````
 
 Usage workflow 3:
 ````bash
-  python prepare_wf3.py  -t  <Tracking table> -g <Galaxy Instance> -k <API Key>  -w <workflow directory> -v <Optional workflow version> -s <Optional suffix>
+  python <path to scripts>/batch_vgp_run/prepare_wf3.py  -t  <Tracking table> -g <Galaxy Instance> -k <API Key>  -w <workflow directory> -v <Optional workflow version> -s <Optional suffix>
 ````
 
 
@@ -155,7 +150,7 @@ Inputs:
 
 Usage:
 ````bash
-  python prepare_wf8.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  -w <workflow directory> -v <workflow version> -s <Optional suffix> -1
+  python <path to scripts>/batch_vgp_run/prepare_wf8.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  -w <workflow directory> -v <workflow version> -s <Optional suffix> -1
 ````
 
 

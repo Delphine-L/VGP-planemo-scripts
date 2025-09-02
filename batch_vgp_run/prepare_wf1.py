@@ -51,26 +51,24 @@ def main():
     else:
         suffix_run=''
 
-    ### Get compatible workflow versions
-
-    #Compatible_workflow="https://github.com/iwc-workflows/kmer-profiling-hifi-VGP1/archive/refs/tags/v0.3.zip"
-    #path_compatible="kmer-profiling-hifi-VGP1-0.3/kmer-profiling-hifi-VGP1.ga"
-    #archive_name="kmer-profiling-hifi-VGP1.zip"
     Compatible_version=args.wfl_version
     workflow_name="kmer-profiling-hifi-VGP1"
 
     worfklow_path,release_number=function.get_worfklow(Compatible_version, workflow_name, wfl_dir)
 
 
-    infos=pandas.read_csv(args.species, header=None, sep="\t")
+    infos=pandas.read_csv(args.species, header=0, sep="\t")
     list_yml=[]
     list_res=[]
     commands=[]
-    infos.rename(columns={0: 'Species', 1: 'Assembly',2: 'HiFi', 3: 'HiC_f',4: 'HiC_r'}, inplace=True)
     for i,row in infos.iterrows():
-        list_pacbio=infos.iloc[i]['HiFi'].split(' ')
         spec_name=infos.iloc[i]['Species']
         spec_id=infos.iloc[i]['Assembly']
+        hifi_col=infos.iloc[i]['Hifi_reads']
+        if hifi_col=='NA':
+            print('Warning: '+spec_id+' has been skipped because it has no PacBio reads.')
+            continue
+        list_pacbio=hifi_col.split(',')
         species_path="./"+spec_id+"/"
         os.makedirs(species_path, exist_ok=True)
         os.makedirs(species_path+"job_files/", exist_ok=True)
@@ -84,14 +82,14 @@ def main():
         for i in list_pacbio:
             name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
             str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
-        with open(path_script+"/wf1_run.sample.yaml", 'r') as sample_file:
+        with open(path_script+"/templates/wf1_run.sample.yaml", 'r') as sample_file:
             filedata = sample_file.read()
         filedata = filedata.replace('["Pacbio"]', str_elements )
         filedata = filedata.replace('["species_name"]', spec_name )
         filedata = filedata.replace('["assembly_name"]', spec_id )
         with open(yml_file, 'w') as yaml_wf1:
             yaml_wf1.write(filedata)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" &"
         commands.append(cmd_line)
         print(cmd_line)
     infos["Job_File_wf1"]=list_yml
@@ -99,7 +97,7 @@ def main():
     infos["Results_wf1"]=list_res
     infos["Command_wf1"]=commands
     infos["Invocation_wf1"]='NA'
-    infos.to_csv("wf_run_"+args.species, sep='\t', header=True, index=False)
+    infos.to_csv(args.species, sep='\t', header=True, index=False)
 
 if __name__ == "__main__":
     main()
