@@ -22,8 +22,10 @@ def get_urls(species_name,species_id):
     command_genomic_data="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/ "
     data_type=subprocess.run(command_genomic_data.split(), capture_output=True, text=True, check=True)
     if 'arima' in data_type.stdout:
+        hic_type="arima"
         command_hic="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/arima/ "
     elif 'dovetail' in data_type.stdout:
+        hic_type="dovetail"
         command_hic="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/dovetail/ "
     else:
         raise SystemExit("No Hi-C folder (arima or dovetail) found in genomeark/species/"+species_name+"/"+species_id+"/genomic_data/")
@@ -52,7 +54,7 @@ def get_urls(species_name,species_id):
         res_table_hic_r=res_table_hic_r.sort_values(by=3)
         hic_forward= ",".join(res_table_hic_f[3])
         hic_reverse = ",".join(res_table_hic_r[3])
-    return hifi_reads,hic_forward,hic_reverse
+    return hifi_reads,hic_type,hic_forward,hic_reverse
 
 
 def main():
@@ -102,11 +104,12 @@ def main():
         for i,row in infos.iterrows():
             species_name=row['Species']
             species_id=row['Assembly']
-            hifi_reads,hic_forward,hic_reverse=get_urls(species_name,species_id)
+            hifi_reads,hic_type,hic_forward,hic_reverse=get_urls(species_name,species_id)
             list_hifi_urls.append(hifi_reads)
             list_hic_f_urls.append(hic_forward)
             list_hic_r_urls.append(hic_reverse)
         infos['Hifi_reads']=list_hifi_urls
+        infos['HiC_Type']=hic_type
         infos['HiC_forward_reads']=list_hic_f_urls
         infos['HiC_reverse_reads']=list_hic_r_urls
 

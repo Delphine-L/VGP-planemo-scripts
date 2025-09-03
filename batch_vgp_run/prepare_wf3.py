@@ -93,6 +93,7 @@ def main():
             invocation_number=row['Invocation_wf1']
         res_file=species_path+"invocations_json/wf3_"+spec_id+suffix_run+".json"
         yml_file=species_path+"job_files/wf3_"+spec_id+suffix_run+".yml"
+        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf3.log"
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+": Files and command already generated")
             list_reports.append(row['Wf1_Report'])
@@ -124,7 +125,7 @@ def main():
         list_yml.append(yml_file)
         list_res.append(res_file)
         history_id=wf1_inv.__dict__['history_id']
-        cmd_line="planemo run  "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
+        cmd_line="planemo run  "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf3_run.sample.yaml", 'r') as sample_file:

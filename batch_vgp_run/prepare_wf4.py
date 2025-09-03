@@ -94,6 +94,7 @@ def main():
             invocation_number=row['Invocation_wf1']
         res_file=species_path+"invocations_json/wf4_"+spec_id+suffix_run+".json"
         yml_file=species_path+"job_files/wf4_"+spec_id+suffix_run+".yml"
+        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf4.log"
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+": Files and command already generated")
             list_reports.append(row['Wf1_Report'])
@@ -123,6 +124,7 @@ def main():
         str_hic=""
         hic_f_col=infos.iloc[i]['HiC_forward_reads']
         hic_r_col=infos.iloc[i]['HiC_reverse_reads']
+        hic_type=infos.iloc[i]['HiC_Type']
         if type(hic_f_col)==float or type(hic_r_col)==float :
             print('Warning: '+spec_id+' has been skipped because it is missing Hi-C reads.')
             continue
@@ -137,8 +139,8 @@ def main():
         for i in range(0,len(hic_f)):
             namef=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_f[i])
             namer=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_r[i])
-            str_hic=str_hic+"\n  - class: Collection\n    type: paired\n    identifier: "+namef+"\n    elements:\n    - identifier: forward\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/arima/"+hic_f[i]+"\n      filetype: fastqsanger.gz\n    - identifier: reverse\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/arima/"+hic_r[i]+"\n      filetype: fastqsanger.gz"
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --simultaneous_uploads --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
+            str_hic=str_hic+"\n  - class: Collection\n    type: paired\n    identifier: "+namef+"\n    elements:\n    - identifier: forward\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/"+hic_type+"/"+hic_f[i]+"\n      filetype: fastqsanger.gz\n    - identifier: reverse\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/"+hic_type+"/"+hic_r[i]+"\n      filetype: fastqsanger.gz"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --simultaneous_uploads --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf4_run.sample.yaml", 'r') as sample_file:

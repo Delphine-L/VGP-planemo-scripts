@@ -114,6 +114,7 @@ def main():
 
         res_file=species_path+"invocations_json/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".json"
         yml_file=species_path+"job_files/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".yml"
+        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf8.log"
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+"_"+hap_for_path+": Files and command already generated")
             list_reports.append(row['Wf4_Report'])
@@ -151,7 +152,7 @@ def main():
         history_id=wf4_inv.__dict__['history_id']
         list_yml.append(yml_file)
         list_res.append(res_file)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf8_run.sample.yaml", 'r') as sample_file:
