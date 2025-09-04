@@ -77,7 +77,7 @@ def main():
         os.makedirs(species_path+"planemo_log/", exist_ok=True)
         str_elements=""
         yml_file=species_path+'job_files/wf1_'+spec_id+suffix_run+'.yml'
-        res_file=species_path+'job_files/wf1_'+spec_id+suffix_run+'.yml'
+        res_file=species_path+'invocations_json/wf1_'+spec_id+suffix_run+'.yml'
         list_yml.append(yml_file)
         log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf1.log"
         list_res.append(res_file)

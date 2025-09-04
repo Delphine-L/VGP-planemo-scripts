@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+
+
+import json 
+import sys
+import argparse
+import pandas
+import re
+import pathlib
+import function
+from bioblend.galaxy.objects import GalaxyInstance
+from io import StringIO
+import textwrap
+import os
+import subprocess
+
+
+
+
+def main():
+
+	parser = argparse.ArgumentParser(
+						prog='prepare_wf9',
+						description='After running wf8, download the qc and prepare the job files and command line to run wf9',
+						usage='prepare_wf9.py  -t  <Tracking table>  -k <API Key> -g <Galaxy Instance> -w <workflow directory> -v <workflow version> -s <Optional suffix> -1',
+						formatter_class=argparse.RawTextHelpFormatter,
+						epilog=textwrap.dedent('''
+											General outputs: 
+											- {Tracking_table}: The tracking table updated with wf9 runs. 
+											For each species in {table}:
+											- {assembly_id}/job_files/wf9_{assembly_id}_{suffix}_{haplotype}.yaml: The yaml file with the job inputs and parameters.
+											- {assembly_id}/invocations_json/wf9_{assembly_id}_{suffix}_{haplotype.json:  The json file with the invocation details.
+											'''))
+	parser.add_argument('-t', '--table', dest="track_table",required=True, help='File containing the species and input files (Produced by prepare_wf8.py) ')  
+	parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
+	parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
+	parser.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=True,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
+	parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.8", help="Optional: Specify which version of the workflow to run. Provide path to use a local ga file with FCS-Gx.  Must be compatible with the sample yaml files (default: 0.8)")    
+	parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf8_mCteGun2_v2.0.yaml)") 
+	group = parser.add_argument_group("Haplotype","Select one and only one of these options to specify what haplotype you are scaffolding")
+	haps = group.add_mutually_exclusive_group() 
+
+	haps.add_argument('-1', '--hap1', action='store_true', required=False, help='Scaffold Haplotype 1')  
+	haps.add_argument('-2', '--hap2', action='store_true', required=False, help='Scaffold Haplotype 2')  
+	haps.add_argument('-p', '--pat', action='store_true', required=False, help='Scaffold paternal haplotype')       
+	haps.add_argument('-m', '--mat', action='store_true', required=False, help='Scaffold maternal haplotype')  
+	args = parser.parse_args()
+
+	if args.wfl_dir[-1]=="/":
+		wfl_dir=args.wfl_dir
+	else: 
+		wfl_dir=args.wfl_dir+"/"
+
+	if args.suffix!='':
+		suffix_run='_'+suffix
+	else:
+		suffix_run=''
+
+
+	path_script=str(pathlib.Path(__file__).parent.resolve())
+
+	if args.hap1:
+		haplotype="Haplotype 1"
+		hap_for_path="hap1"
+	elif args.hap2:
+		haplotype="Haplotype 2"
+		hap_for_path="hap2"
+	elif args.pat:
+		haplotype="Paternal"
+		hap_for_path="pat"
+	elif args.mat:
+		haplotype="Maternal"
+		hap_for_path="mat"
+	else:
+		raise SystemExit("Please specify the haplotype being scaffolded")
+
+	gi = GalaxyInstance(args.instance, args.apikey)
+
+	infos=pandas.read_csv(args.track_table, header=0, sep="\t" )
+	infos = infos.fillna(value={'Invocation_wf8_'+hap_for_path:'NA'}) 
+	infos = infos.fillna(value={'WF8_result_json_'+hap_for_path:'NA'}) 
+
+	try:
+		version_wf9=float(args.wfl_version)
+		Compatible_version=args.wfl_version
+		workflow_name="Assembly-decontamination-VGP9"
+		worfklow_path,release_number=function.get_worfklow(Compatible_version, workflow_name, wfl_dir)
+		if  version_wf9<0.9 :
+			version_wfl='legacy'
+		else :
+			version_wfl='fcs'
+	except :
+		worfklow_path=args.wfl_version
+		version_wfl='fcs'
+
+	if version_wfl=='fcs':
+		sample_job_file=path_script+"/templates/wf9_run_sample_fcs.yaml"
+	else:
+		sample_job_file=path_script+"/templates/wf9_run_sample_legacy.yaml"
+
+	list_yml=[]
+	list_res=[]
+	commands=[]
+	list_reports=[]
+	list_invocation=[]
+
+	for i,row in infos.iterrows():
+		spec_name=row['Species']
+		spec_id=row['Assembly']
+		species_path="./"+spec_id+"/"
+		if row['Invocation_wf8_'+hap_for_path]=='NA':
+			json_wf4=infos.iloc[i]['WF8_result_json_'+hap_for_path]
+			if os.path.exists(json_wf4):
+				wf4json=open(json_wf4)
+				reswf4=json.load(wf4json)
+				invocation_number=reswf4["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+				row.loc['Invocation_wf8_'+hap_for_path]=invocation_number
+			else:
+				print("Skipped "+spec_id+": No Json or invocation number found")
+				list_reports.append("NA")
+				commands.append("NA")
+				list_res.append("NA")
+				list_yml.append("NA")
+				continue
+		else:
+			invocation_number=row['Invocation_wf8_'+hap_for_path]        
+
+		res_file=species_path+"invocations_json/wf9_"+spec_id+suffix_run+"_"+hap_for_path+".json"
+		yml_file=species_path+"job_files/wf9_"+spec_id+suffix_run+"_"+hap_for_path+".yml"
+		log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf9.log"
+		if os.path.exists(yml_file):
+			print("Skipped "+spec_id+"_"+hap_for_path+": Files and command already generated")
+			list_reports.append(row['Wf8_Report_'+hap_for_path])
+			commands.append(row['Wf9_Commands_'+hap_for_path])
+			list_res.append(row['WF9_result_json_'+hap_for_path])
+			list_yml.append(row['WF9_job_yml_'+hap_for_path])
+			continue
+		wf4_inv=gi.invocations.get(str(invocation_number))
+		invocation_state=wf4_inv.summary()['populated_state']
+		if invocation_state!='ok':
+			print("Skipped "+spec_id+"_"+hap_for_path+": Invocation incomplete, Status: "+invocation_state+", url: "+args.instance+"/workflows/invocations/"+invocation_number)
+			list_reports.append("NA")
+			commands.append("NA")
+			list_res.append("NA")
+			list_yml.append("NA")
+			continue
+
+		wf4_inv.save_report_pdf(species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+		list_reports.append(species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+
+		gfa_assembly=wf4_inv.__dict__['wrapped']['outputs']["Reconciliated Scaffolds: fasta"]['id']
+
+		history_id=wf4_inv.__dict__['history_id']
+		list_yml.append(yml_file)
+		list_res.append(res_file)
+		cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+		commands.append(cmd_line)
+		print(cmd_line)
+		with open(sample_job_file, 'r') as sample_file:
+			filedata = sample_file.read()
+
+
+		if version_wfl=='fcs':
+			species_name=spec_name.replace("_"," ")
+			print(species_name)
+			datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name, '--as-json-lines']
+			data_type=subprocess.run(datasets_command, capture_output=True, text=True, check=True)
+			taxon_data=json.loads(data_type.stdout)
+			taxon_ID=taxon_data['taxonomy']['tax_id']
+			taxon_name=taxon_data['taxonomy']['current_scientific_name']['name']
+			filedata = filedata.replace('["species_name"]', taxon_name )
+			filedata = filedata.replace('["haplotype"]',  haplotype)
+			filedata = filedata.replace('["assembly_name"]', spec_id )
+			filedata = filedata.replace('["taxon_ID"]', str(taxon_ID) )
+
+		filedata = filedata.replace('["Assembly"]', gfa_assembly )
+		
+		with open(yml_file, 'w') as yaml_wf:
+			yaml_wf.write(filedata)
+
+	infos['Wf8_Report_'+hap_for_path]=list_reports
+	infos['WF9_job_yml_'+hap_for_path]=list_yml
+	infos['WF9_result_json_'+hap_for_path]=list_res
+	infos['Wf9_Commands_'+hap_for_path]=commands
+	infos['Invocation_wf9_'+hap_for_path]='NA'
+	infos.to_csv(args.track_table, sep='\t', header=True, index=False)
+
+
+
+if __name__ == "__main__":
+    main()
+        

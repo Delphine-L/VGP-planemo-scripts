@@ -18,14 +18,14 @@ def main():
 
     parser = argparse.ArgumentParser(
                         prog='prepare_wf8',
-                        description='After running wf1, download the qc and prepare the job files and command line to run wf4',
+                        description='After running wf4, download the qc and prepare the job files and command line to run wf8',
                         usage='prepare_wf8.py  -t  <Tracking table>  -k <API Key> -g <Galaxy Instance> -w <workflow directory> -v <workflow version> -s <Optional suffix> -1',
                         formatter_class=argparse.RawTextHelpFormatter,
                         epilog=textwrap.dedent('''
                                             General outputs: 
-                                            - {Tracking_table}: The tracking table updated with wf4 runs. 
+                                            - {Tracking_table}: The tracking table updated with wf8 runs. 
                                             For each species in {table}:
-                                            - {assembly_id}/job_files/wf4_{assembly_id}_{suffix}_{haplotype}.yaml: The yaml file with the job inputs and parameters.
+                                            - {assembly_id}/job_files/wf8_{assembly_id}_{suffix}_{haplotype}.yaml: The yaml file with the job inputs and parameters.
                                             - {assembly_id}/invocations_json/wf8_{assembly_id}_{suffix}_{haplotype.json:  The json file with the invocation details.
                                             '''))
     parser.add_argument('-t', '--table', dest="track_table",required=True, help='File containing the species and input files (Produced by prepare_wf4.py) ')  
@@ -84,6 +84,7 @@ def main():
 
     infos=pandas.read_csv(args.track_table, header=0, sep="\t" )
     infos = infos.fillna(value={'Invocation_wf4':'NA'}) 
+    infos = infos.fillna(value={'WF4_result_json':'NA'}) 
 
     list_yml=[]
     list_res=[]
@@ -115,6 +116,7 @@ def main():
         res_file=species_path+"invocations_json/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".json"
         yml_file=species_path+"job_files/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".yml"
         log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf8.log"
+
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+"_"+hap_for_path+": Files and command already generated")
             list_reports.append(row['Wf4_Report'])
@@ -132,9 +134,9 @@ def main():
             list_yml.append("NA")
             continue
 
-        wf4_inv.save_report_pdf(species_path+'reports/report_wf4_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+        wf4_inv.save_report_pdf(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
         pacbio_collection=wf4_inv.__dict__['wrapped']['inputs'][0]['id']
-        list_reports.append(species_path+'reports/report_wf4_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+        list_reports.append(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
 
         trimmed_hic=wf4_inv.__dict__['wrapped']['output_collections']['Trimmed Hi-C reads']['id']
         est_size=wf4_inv.__dict__['wrapped']['outputs']['Estimated Genome size']['id']
@@ -172,7 +174,7 @@ def main():
     infos['WF8_result_json_'+hap_for_path]=list_res
     infos['Wf8_Commands_'+hap_for_path]=commands
     infos['Invocation_wf8_'+hap_for_path]='NA'
-    infos.to_csv(args.track_table, sep='\t', header=False, index=False)
+    infos.to_csv(args.track_table, sep='\t', header=True, index=False)
 
 if __name__ == "__main__":
     main()

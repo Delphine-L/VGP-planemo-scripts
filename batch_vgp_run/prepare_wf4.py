@@ -78,6 +78,7 @@ def main():
         species_path="./"+spec_id+"/"
         if row['Invocation_wf1']=='NA':
             json_wf1=infos.iloc[i]['Results_wf1']
+            print(json_wf1)
             if os.path.exists(json_wf1):
                 wf1json=open(json_wf1)
                 reswf1=json.load(wf1json)

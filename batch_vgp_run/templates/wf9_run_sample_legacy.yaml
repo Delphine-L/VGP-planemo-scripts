@@ -1,0 +1,4 @@
+"Scaffolded assembly (fasta)": 
+  class: File
+  galaxy_id: ["Assembly"]
+"Database for Kraken2": k2_pluspf_20210517

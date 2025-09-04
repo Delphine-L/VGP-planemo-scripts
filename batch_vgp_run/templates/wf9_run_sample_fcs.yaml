@@ -1,0 +1,8 @@
+"Scaffolded assembly (fasta)": 
+  class: File
+  galaxy_id: ["Assembly"]
+"Taxonomic Identifier":  ["taxon_ID"]
+"Species Binomial Name":  "["species_name"]"
+"Assembly Name": "["assembly_name"]"
+"Haplotype": "["haplotype"]"
+"Maximum length of sequence to consider for mitochondrial scaffolds": 0
