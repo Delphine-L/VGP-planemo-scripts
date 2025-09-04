@@ -1,25 +1,25 @@
 Pacbio Reads:
   class: Collection
   collection_type: list
-  galaxy_id: ["Pacbio"]
+  galaxy_id: ["Collection of Pacbio Data"]
 Meryl Database:
   class: File
-  galaxy_id: "["read_db"]"
+  galaxy_id: ["Merged Meryl Database"]
 Genomescope Summary:
   class: File
-  galaxy_id: "["summary"]"
+  galaxy_id: ["GenomeScope summary"]
 Bits for bloom filter: 37
 Homozygous Read Coverage : null
 Genomescope Model Parameters: 
   class: File
-  galaxy_id: "["model_params"]"
+  galaxy_id: ["GenomeScope Model Parameters"]
 SAK input file (Optional): null
 Database for Busco Lineage: v5
 Lineage: vertebrata_odb10
 Name for Haplotype 1: Hap1
 Name for Haplotype 2: Hap2
-Species Name:  "["species_name"]"
-Assembly Name:  "["assembly_name"]"
+Species Name:  "["Species Name"]"
+Assembly Name:  "["Assembly Name"]"
 Trim Hi-C reads?: true
 Hi-C reads:
   class: Collection

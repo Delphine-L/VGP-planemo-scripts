@@ -8,7 +8,7 @@ import pandas
 import re
 import pathlib
 import function
-from bioblend.galaxy.objects import GalaxyInstance
+from bioblend.galaxy import GalaxyInstance
 from io import StringIO
 import textwrap
 import os
@@ -46,15 +46,7 @@ def main():
 	haps.add_argument('-m', '--mat', action='store_true', required=False, help='Scaffold maternal haplotype')  
 	args = parser.parse_args()
 
-	if args.wfl_dir[-1]=="/":
-		wfl_dir=args.wfl_dir
-	else: 
-		wfl_dir=args.wfl_dir+"/"
-
-	if args.suffix!='':
-		suffix_run='_'+suffix
-	else:
-		suffix_run=''
+	suffix_run,wfl_dir,galaxy_instance=function.fix_parameters(args.suffix, args.wfl_dir, args.instance)
 
 
 	path_script=str(pathlib.Path(__file__).parent.resolve())
@@ -74,7 +66,7 @@ def main():
 	else:
 		raise SystemExit("Please specify the haplotype being scaffolded")
 
-	gi = GalaxyInstance(args.instance, args.apikey)
+	gi = GalaxyInstance(galaxy_instance, args.apikey)
 
 	infos=pandas.read_csv(args.track_table, header=0, sep="\t" )
 	infos = infos.fillna(value={'Invocation_wf8_'+hap_for_path:'NA'}) 
@@ -135,45 +127,54 @@ def main():
 			list_res.append(row['WF9_result_json_'+hap_for_path])
 			list_yml.append(row['WF9_job_yml_'+hap_for_path])
 			continue
-		wf4_inv=gi.invocations.get(str(invocation_number))
-		invocation_state=wf4_inv.summary()['populated_state']
+
+		wf4_inv=gi.invocations.show_invocation(str(invocation_number))
+		invocation_state=gi.invocations.get_invocation_summary(str(invocation_number))['populated_state']
+
 		if invocation_state!='ok':
-			print("Skipped "+spec_id+"_"+hap_for_path+": Invocation incomplete, Status: "+invocation_state+", url: "+args.instance+"/workflows/invocations/"+invocation_number)
+			print("Skipped "+spec_id+"_"+hap_for_path+": Invocation incomplete, Status: "+invocation_state+", url: "+galaxy_instance+"/workflows/invocations/"+invocation_number)
 			list_reports.append("NA")
 			commands.append("NA")
 			list_res.append("NA")
 			list_yml.append("NA")
 			continue
 
-		wf4_inv.save_report_pdf(species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
-		list_reports.append(species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+                    
+		dic_data_ids=function.get_datasets_ids(wf4_inv)
+		if dic_data_ids['Species Name']!=spec_name:
+			raise SystemExit("Error: The species name for the invocation does no fit the name in the table: "+spec_name+". Please check the invocation number.") 
 
-		gfa_assembly=wf4_inv.__dict__['wrapped']['outputs']["Reconciliated Scaffolds: fasta"]['id']
-
-		history_id=wf4_inv.__dict__['history_id']
-		list_yml.append(yml_file)
-		list_res.append(res_file)
-		cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
-		commands.append(cmd_line)
-		print(cmd_line)
-		with open(sample_job_file, 'r') as sample_file:
-			filedata = sample_file.read()
-
+		dic_data_ids['haplotype']=haplotype
 
 		if version_wfl=='fcs':
 			species_name=spec_name.replace("_"," ")
-			print(species_name)
 			datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name, '--as-json-lines']
 			data_type=subprocess.run(datasets_command, capture_output=True, text=True, check=True)
 			taxon_data=json.loads(data_type.stdout)
 			taxon_ID=taxon_data['taxonomy']['tax_id']
 			taxon_name=taxon_data['taxonomy']['current_scientific_name']['name']
-			filedata = filedata.replace('["species_name"]', taxon_name )
-			filedata = filedata.replace('["haplotype"]',  haplotype)
-			filedata = filedata.replace('["assembly_name"]', spec_id )
-			filedata = filedata.replace('["taxon_ID"]', str(taxon_ID) )
+			dic_data_ids['taxon_ID']=str(taxon_ID)
 
-		filedata = filedata.replace('["Assembly"]', gfa_assembly )
+		gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+		list_reports.append(species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
+
+
+		history_id=wf4_inv['history_id']
+		
+		list_yml.append(yml_file)
+		list_res.append(res_file)
+		cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+		commands.append(cmd_line)
+		print(cmd_line)
+		with open(sample_job_file, 'r') as sample_file:
+			filedata = sample_file.read()
+
+		pattern = r'\["(.*)"\]'  # Matches the fields to replace
+		to_fill = re.findall(pattern, filedata)
+
+		for i in to_fill:
+			filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
+
 		
 		with open(yml_file, 'w') as yaml_wf:
 			yaml_wf.write(filedata)

@@ -8,7 +8,7 @@ import pandas
 import re
 import pathlib
 import function
-from bioblend.galaxy.objects import GalaxyInstance
+from bioblend.galaxy import GalaxyInstance
 from io import StringIO
 import textwrap
 import os
@@ -32,7 +32,7 @@ def main():
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
     parser.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=True,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
-    parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="2.0", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 2.0)")    
+    parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="2.2", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 2.2)")    
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf8_mCteGun2_v2.0.yaml)") 
     group = parser.add_argument_group("Haplotype","Select one and only one of these options to specify what haplotype you are scaffolding")
     haps = group.add_mutually_exclusive_group() 
@@ -43,19 +43,11 @@ def main():
     haps.add_argument('-m', '--mat', action='store_true', required=False, help='Scaffold maternal haplotype')  
     args = parser.parse_args()
 
-    if args.wfl_dir[-1]=="/":
-        wfl_dir=args.wfl_dir
-    else: 
-        wfl_dir=args.wfl_dir+"/"
-
-    if args.suffix!='':
-        suffix_run='_'+suffix
-    else:
-        suffix_run=''
-
 
     path_script=str(pathlib.Path(__file__).parent.resolve())
 
+    suffix_run,wfl_dir,galaxy_instance=function.fix_parameters(args.suffix, args.wfl_dir, args.instance)
+    
     Compatible_version=args.wfl_version
     workflow_name="Scaffolding-HiC-VGP8"
 
@@ -80,7 +72,9 @@ def main():
     else:
         raise SystemExit("Please specify the haplotype being scaffolded")
 
-    gi = GalaxyInstance(args.instance, args.apikey)
+
+    gi = GalaxyInstance(galaxy_instance, args.apikey)
+
 
     infos=pandas.read_csv(args.track_table, header=0, sep="\t" )
     infos = infos.fillna(value={'Invocation_wf4':'NA'}) 
@@ -124,8 +118,10 @@ def main():
             list_res.append(row['WF8_result_json_'+hap_for_path])
             list_yml.append(row['WF8_job_yml_'+hap_for_path])
             continue
-        wf4_inv=gi.invocations.get(str(invocation_number))
-        invocation_state=wf4_inv.summary()['populated_state']
+
+        wf4_inv=gi.invocations.show_invocation(str(invocation_number))
+        invocation_state=gi.invocations.get_invocation_summary(str(invocation_number))['populated_state']
+
         if invocation_state!='ok':
             print("Skipped "+spec_id+"_"+hap_for_path+": Invocation incomplete, Status: "+invocation_state+", url: "+args.instance+"/workflows/invocations/"+invocation_number)
             list_reports.append("NA")
@@ -134,38 +130,33 @@ def main():
             list_yml.append("NA")
             continue
 
-        wf4_inv.save_report_pdf(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
-        pacbio_collection=wf4_inv.__dict__['wrapped']['inputs'][0]['id']
+                    
+        dic_data_ids=function.get_datasets_ids(wf4_inv)
+        if dic_data_ids['Species Name']!=spec_name:
+            raise SystemExit("Error: The species name for the invocation does no fit the name in the table: "+spec_name+". Please check the invocation number.") 
+
+        dic_data_ids['haplotype']=haplotype
+        dic_data_ids['gfa_assembly']=dic_data_ids[gfa_input]
+
+        gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
+
         list_reports.append(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
 
-        trimmed_hic=wf4_inv.__dict__['wrapped']['output_collections']['Trimmed Hi-C reads']['id']
-        est_size=wf4_inv.__dict__['wrapped']['outputs']['Estimated Genome size']['id']
-        gfa_assembly=wf4_inv.__dict__['wrapped']['outputs'][gfa_input]['id']
-
-        old_cutadapt_res={key: value for key, value in wf4_inv.__dict__['wrapped']['output_collections'].items() if 'Cutadapt' in key}
-        new_cutadapt_res={key: value for key, value in wf4_inv.__dict__['wrapped']['output_collections'].items() if 'adapters' in key}
-        if len(new_cutadapt_res)==1 and len(old_cutadapt_res)==0:
-            pacbio_collection=new_cutadapt_res[list(new_cutadapt_res.keys())[0]]['id']
-        elif len(old_cutadapt_res)==1 and len(new_cutadapt_res)==0:
-            pacbio_collection=old_cutadapt_res[list(old_cutadapt_res.keys())[0]]['id']
-        else : 
-            raise SystemExit("Confusion between Trimmed Pacbio outputs. verify you do not have duplicated labels. ")
-        
-        history_id=wf4_inv.__dict__['history_id']
+        history_id=wf4_inv['history_id']
         list_yml.append(yml_file)
         list_res.append(res_file)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url https://vgp.usegalaxy.org/  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+"  --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
-        with open(path_script+"/templates/wf8_run.sample.yaml", 'r') as sample_file:
+        with open(path_script+"/templates/wf8_run_sample.yaml", 'r') as sample_file:
             filedata = sample_file.read()
-        filedata = filedata.replace('["hi_c"]', trimmed_hic)
-        filedata = filedata.replace('["species_name"]', spec_name )
-        filedata = filedata.replace('["haplotype"]',  haplotype)
-        filedata = filedata.replace('["estimated_size"]', est_size )
-        filedata = filedata.replace('["gfa_assembly"]', gfa_assembly )
-        filedata = filedata.replace('["assembly_name"]', spec_id )
-    
+
+        pattern = r'\["(.*)"\]'  # Matches the fields to replace
+        to_fill = re.findall(pattern, filedata)
+
+        for i in to_fill:
+            filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
+
         with open(yml_file, 'w') as yaml_wf:
             yaml_wf.write(filedata)
 

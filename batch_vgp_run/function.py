@@ -6,6 +6,8 @@ import requests
 import zipfile
 import json
 import shutil
+from bioblend.galaxy import GalaxyInstance
+import re
 
 
 def download_file(url, save_path):
@@ -66,5 +68,26 @@ def get_worfklow(Compatible_version, workflow_name, workflow_repo):
     return file_path, release_number
 
 
+def get_datasets_ids(invocation):
+    dic_datasets_ids={key: value['id'] for key,value in invocation['outputs'].items()}
+    dic_datasets_ids.update({value['label']: value['id'] for key,value in invocation['inputs'].items()})
+    dic_datasets_ids.update({value['label']: value['parameter_value'] for key,value in invocation['input_step_parameters'].items()})
+    dic_datasets_ids.update({key: value['id'] for key, value in invocation['output_collections'].items()})
+    return dic_datasets_ids
 
-        
+
+def fix_parameters(entered_suffix, entered_directory, entered_url):
+    if entered_directory[-1]=="/":
+        wfl_dir=entered_directory
+    else: 
+        wfl_dir=entered_directory+"/"
+    if entered_suffix!='':
+        suffix_run='_'+entered_suffix
+    else:
+        suffix_run=''
+    regexurl=r'(https?:\/\/)'
+    if re.search(regexurl,entered_url):
+        validurl=entered_url
+    else:
+        validurl='https://'+entered_url
+    return suffix_run,wfl_dir,validurl

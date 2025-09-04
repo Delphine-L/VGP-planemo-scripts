@@ -31,7 +31,7 @@ def main():
     parser.add_argument('-t', '--table', dest="species",required=True, help='File containing the species and input files (Produced with get_files_names.sh)')  
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance')  
     parser.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=True,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
-    parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.3", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.3)")    
+    parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.4", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.4)")    
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf1_mCteGun2_v2.0.yaml)") 
     args = parser.parse_args()
 
@@ -41,15 +41,8 @@ def main():
     
     path_script=str(pathlib.Path(__file__).parent.resolve())
 
-    if args.wfl_dir[-1]=="/":
-        wfl_dir=args.wfl_dir
-    else: 
-         wfl_dir=args.wfl_dir+"/"
+    suffix_run,wfl_dir,galaxy_instance=function.fix_parameters(args.suffix, args.wfl_dir, args.instance)
 
-    if args.suffix!='':
-        suffix_run='_'+args.suffix
-    else:
-        suffix_run=''
 
     Compatible_version=args.wfl_version
     workflow_name="kmer-profiling-hifi-VGP1"
@@ -91,7 +84,7 @@ def main():
         filedata = filedata.replace('["assembly_name"]', spec_id )
         with open(yml_file, 'w') as yaml_wf1:
             yaml_wf1.write(filedata)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+args.instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1 &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1 &"
         commands.append(cmd_line)
         print(cmd_line)
     infos["Job_File_wf1"]=list_yml

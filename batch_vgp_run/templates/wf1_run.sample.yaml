@@ -1,7 +1,7 @@
 Collection of Pacbio Data:
   class: Collection
   collection_type: list
-  elements:["Pacbio"]
+  elements: ["Pacbio"]
 'K-mer length ': 21
 Ploidy: 2
 Species Name:  "["species_name"]"
