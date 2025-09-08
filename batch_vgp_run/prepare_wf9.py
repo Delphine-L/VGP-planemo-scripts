@@ -139,7 +139,7 @@ def main():
 			list_yml.append("NA")
 			continue
 
-                    
+					
 		dic_data_ids=function.get_datasets_ids(wf4_inv)
 		if dic_data_ids['Species Name']!=spec_name:
 			raise SystemExit("Error: The species name for the invocation does no fit the name in the table: "+spec_name+". Please check the invocation number.") 
@@ -189,5 +189,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-        
+	main()
+		
