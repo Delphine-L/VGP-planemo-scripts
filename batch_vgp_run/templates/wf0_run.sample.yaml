@@ -1,0 +1,8 @@
+"Species name (latin name)":  "["Latin Name"]"
+"Assembly Name":  "["Assembly Name"]"
+"Collection of Pacbio Data": 
+  class: Collection
+  collection_type: list
+  galaxy_id:  ["Collection of Pacbio Data"]
+"Email adress": "["email"]"
+"Genetic Code": 2

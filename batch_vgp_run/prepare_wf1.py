@@ -70,7 +70,7 @@ def main():
         os.makedirs(species_path+"planemo_log/", exist_ok=True)
         str_elements=""
         yml_file=species_path+'job_files/wf1_'+spec_id+suffix_run+'.yml'
-        res_file=species_path+'invocations_json/wf1_'+spec_id+suffix_run+'.yml'
+        res_file=species_path+'invocations_json/wf1_'+spec_id+suffix_run+'.json'
         list_yml.append(yml_file)
         log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf1.log"
         list_res.append(res_file)
@@ -84,7 +84,7 @@ def main():
         filedata = filedata.replace('["assembly_name"]', spec_id )
         with open(yml_file, 'w') as yaml_wf1:
             yaml_wf1.write(filedata)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1 &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --check_uploads_ok --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1 &"
         commands.append(cmd_line)
         print(cmd_line)
     infos["Job_File_wf1"]=list_yml

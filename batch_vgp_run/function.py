@@ -8,6 +8,29 @@ import json
 import shutil
 from bioblend.galaxy import GalaxyInstance
 import re
+from collections import defaultdict
+
+def find_duplicate_values(input_dict):
+    """
+    Finds values in a dictionary that are associated with multiple keys.
+
+    Args:
+        input_dict (dict): The dictionary to search for duplicate values.
+
+    Returns:
+        dict: A dictionary where keys are the duplicate values and values are 
+              lists of keys that share that value.
+    """
+    reversed_dict = defaultdict(list)
+    for key, value in input_dict.items():
+        reversed_dict[value].append(key)
+
+    duplicate_values = {
+        value: keys 
+        for value, keys in reversed_dict.items() 
+        if len(keys) > 1
+    }
+    return duplicate_values
 
 
 def download_file(url, save_path):
@@ -46,7 +69,6 @@ def get_workflow_version(path_ga):
         print(f"Error: File not found at {file_path}")
 
 
-
 def get_worfklow(Compatible_version, workflow_name, workflow_repo):
     os.makedirs(workflow_repo, exist_ok=True)
     url_workflow="https://github.com/iwc-workflows/"+workflow_name+"/archive/refs/tags/v"+Compatible_version+".zip"
@@ -60,10 +82,13 @@ def get_worfklow(Compatible_version, workflow_name, workflow_repo):
         release_number=Compatible_version
         download_file(url_workflow, archive_path)
         with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            #print(zip_ref.namelist())
-            zip_ref.extract(path=workflow_repo, member=path_compatible) 
+            file_list = zip_ref.namelist()
+            for item in file_list:
+                if workflow_name.lower()+".ga" in item.lower():
+                    extracted_path=item
+                    zip_ref.extract(path=workflow_repo, member=item) 
             os.remove(archive_path)
-        shutil.move(workflow_repo+path_compatible, file_path)
+            shutil.move(workflow_repo+extracted_path, file_path)
         os.rmdir(workflow_repo+workflow_name+"-"+Compatible_version+"/")
     return file_path, release_number
 

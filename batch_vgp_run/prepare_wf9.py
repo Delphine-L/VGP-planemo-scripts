@@ -163,7 +163,7 @@ def main():
 		
 		list_yml.append(yml_file)
 		list_res.append(res_file)
-		cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+		cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
 		commands.append(cmd_line)
 		print(cmd_line)
 		with open(sample_job_file, 'r') as sample_file:

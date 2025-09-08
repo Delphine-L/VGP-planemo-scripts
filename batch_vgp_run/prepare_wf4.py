@@ -59,6 +59,7 @@ def main():
     commands=[]
     list_reports=[]
     list_invocation=[]
+    list_histories=[]
 
 
     for i,row in infos.iterrows():
@@ -79,6 +80,7 @@ def main():
                 commands.append("NA")
                 list_res.append("NA")
                 list_yml.append("NA")
+                list_histories.append("NA")
                 continue
         else:
             invocation_number=row['Invocation_wf1']
@@ -91,6 +93,7 @@ def main():
             commands.append(row['Wf4_Commands'])
             list_res.append(row['WF4_result_json'])
             list_yml.append(row['WF4_job_yml'])
+            list_histories.append("History_id")
             continue
 
         wf1_inv=gi.invocations.show_invocation(str(invocation_number))
@@ -102,6 +105,7 @@ def main():
             commands.append("NA")
             list_res.append("NA")
             list_yml.append("NA")
+            list_histories.append("NA")
             continue
         
         dic_data_ids=function.get_datasets_ids(wf1_inv)
@@ -124,14 +128,14 @@ def main():
         list_res.append(res_file)
 
         history_id=wf1_inv['history_id']
-
+        list_histories.append(history_id)
         if len(hic_f)!=len(hic_r):
             raise SystemExit("Number of Hi-C forward reads does not match number of Hi-C reverse reads. Check the table and correct if necessary.")
         for i in range(0,len(hic_f)):
             namef=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_f[i])
             namer=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_r[i])
             str_hic=str_hic+"\n  - class: Collection\n    type: paired\n    identifier: "+namef+"\n    elements:\n    - identifier: forward\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/"+hic_type+"/"+hic_f[i]+"\n      filetype: fastqsanger.gz\n    - identifier: reverse\n      class: File\n      path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/"+hic_type+"/"+hic_r[i]+"\n      filetype: fastqsanger.gz"
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --simultaneous_uploads --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --simultaneous_uploads --check_uploads_ok --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf4_run.sample.yaml", 'r') as sample_file:
@@ -147,7 +151,7 @@ def main():
         with open(yml_file, 'w') as yaml_wf4:
             yaml_wf4.write(filedata)
 
-
+    infos['History_id']=list_histories
     infos['Wf1_Report']=list_reports
     infos['WF4_job_yml']=list_yml
     infos['WF4_result_json']=list_res

@@ -16,9 +16,9 @@ import os
 def main():
 
     parser = argparse.ArgumentParser(
-                        prog='prepare_wf3',
-                        description='After running wf1, download the qc and prepare the job files and command line to run wf3',
-                        usage='prepare_wf3.py  -t  <Tracking table> -g <Galaxy Instance> -k <API Key>  -w <workflow directory> -v <workflow version> -s <Optional suffix>',
+                        prog='prepare_wf30',
+                        description='After running wf1, download the qc and prepare the job files and command line to run wf0',
+                        usage='prepare_wf0.py  -t  <Tracking table> -g <Galaxy Instance> -k <API Key>  -w <workflow directory> -e <email> -v <workflow version> -s <Optional suffix>',
                         formatter_class=argparse.RawTextHelpFormatter,
                         epilog=textwrap.dedent('''
                                             General outputs: 
@@ -32,7 +32,8 @@ def main():
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
     parser.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=True,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
-    parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.3.3", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.3.3)")    
+    parser.add_argument('-e', '--email', required=True,  default="", help="Email adress required by MitoHifi.") 
+    parser.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.2.2", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.2.2)")    
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf4_mCteGun2_v2.0.yaml)") 
  
     args = parser.parse_args()
@@ -44,7 +45,7 @@ def main():
 
 
     Compatible_version=args.wfl_version
-    workflow_name="Assembly-Hifi-only-VGP3"
+    workflow_name="Mitogenome-assembly-VGP0"
 
     worfklow_path,release_number=function.get_worfklow(Compatible_version, workflow_name, wfl_dir)
 
@@ -83,15 +84,15 @@ def main():
                 continue
         else:
             invocation_number=row['Invocation_wf1']
-        res_file=species_path+"invocations_json/wf3_"+spec_id+suffix_run+".json"
-        yml_file=species_path+"job_files/wf3_"+spec_id+suffix_run+".yml"
-        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf3.log"
+        res_file=species_path+"invocations_json/wf0_"+spec_id+suffix_run+".json"
+        yml_file=species_path+"job_files/wf0_"+spec_id+suffix_run+".yml"
+        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf0.log"
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+": Files and command already generated")
             list_reports.append(row['Wf1_Report'])
-            commands.append(row['Wf3_Commands'])
-            list_res.append(row['WF3_result_json'])
-            list_yml.append(row['WF3_job_yml'])
+            commands.append(row['Wf0_Commands'])
+            list_res.append(row['WF0_result_json'])
+            list_yml.append(row['WF0_job_yml'])
             list_histories.append("History_id")
             continue
 
@@ -111,6 +112,9 @@ def main():
         if dic_data_ids['Species Name']!=spec_name:
             raise SystemExit("Error: The species name for the invocation does no fit the name in the table: "+spec_name+". Please check the invocation number.") 
 
+        dic_data_ids['Latin Name']=spec_name.replace("_"," ")
+        dic_data_ids['email']=args.email
+
         gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf1_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
         list_reports.append(species_path+'reports/report_wf1_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
         str_elements=""
@@ -123,7 +127,7 @@ def main():
         cmd_line="planemo run  "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --check_uploads_ok --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
-        with open(path_script+"/templates/wf3_run.sample.yaml", 'r') as sample_file:
+        with open(path_script+"/templates/wf0_run.sample.yaml", 'r') as sample_file:
             filedata = sample_file.read()
 
         pattern = r'\["(.*)"\]'  # Matches the fields to replace
@@ -135,12 +139,12 @@ def main():
         with open(yml_file, 'w') as yaml_wf3:
             yaml_wf3.write(filedata)
 
-    infos['History_id']=list_histories
+	infos['History_id']=list_histories
     infos['Wf1_Report']=list_reports
-    infos['WF3_job_yml']=list_yml
-    infos['WF3_result_json']=list_res
-    infos['Wf3_Commands']=commands
-    infos['Invocation_wf3']='NA'
+    infos['WF0_job_yml']=list_yml
+    infos['WF0_result_json']=list_res
+    infos['Wf0_Commands']=commands
+    infos['Invocation_wf0']='NA'
 
     infos.to_csv(args.track_table, sep='\t', header=True, index=False)
 
