@@ -5,4 +5,4 @@
   collection_type: list
   galaxy_id:  ["Collection of Pacbio Data"]
 "Email adress": "["email"]"
-"Genetic Code": 2
+"Genetic Code": '2'
