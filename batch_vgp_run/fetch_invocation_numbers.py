@@ -95,6 +95,9 @@ def main():
         for i in invocation_states.keys():
                 good_invocations[i]={key:gi.invocations.show_invocation(key)['create_time']  for key,value in invocation_states[i].items() if value not in failed_states}
 
+        clean_good_invocations={key: value for key, value in good_invocations.items() if value}
+        failed_runs=[workflow for workflow in good_invocations.keys() if workflow not in clean_dict.keys()]
+        
         invocations_ids={}
         for wkfl in invocation_columns:
             if row[wkfl]=='NA':
@@ -107,8 +110,11 @@ def main():
                         print("Warning: Multiple valid invocations for workflow "+run_names+" for assembly "+spec_id+". Most recent selected. If this is incorrect, replace the value in the column '"+wkfl+"'.")
                         sorted_invocations= sorted(invocations_ids[wkfl].items(), key=lambda item: item[1],reverse=True)
                         invocation_latests=sorted_invocations[0][0]
-                    else:
+                    else if len(invocations_ids[wkfl])==1: 
                         invocation_latests=list(invocations_ids[wkfl].keys())[0]
+                    else:
+                        print("Warning: All invocations for workflow "+run_names+" are in a failed state for assembly "+spec_id+".")
+                        invocation_latests='NA'
                     dictionary_column_content[wkfl].append(invocation_latests)
                 else:
                     dictionary_column_content[wkfl].append('NA')
