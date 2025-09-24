@@ -110,7 +110,7 @@ def main():
                         print("Warning: Multiple valid invocations for workflow "+run_names+" for assembly "+spec_id+". Most recent selected. If this is incorrect, replace the value in the column '"+wkfl+"'.")
                         sorted_invocations= sorted(invocations_ids[wkfl].items(), key=lambda item: item[1],reverse=True)
                         invocation_latests=sorted_invocations[0][0]
-                    else if len(invocations_ids[wkfl])==1: 
+                    elif len(invocations_ids[wkfl])==1: 
                         invocation_latests=list(invocations_ids[wkfl].keys())[0]
                     else:
                         print("Warning: All invocations for workflow "+run_names+" are in a failed state for assembly "+spec_id+".")
