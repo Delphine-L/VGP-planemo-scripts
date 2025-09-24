@@ -14,7 +14,7 @@ Hi-C reads:
   collection_type: list:paired
   galaxy_id: ["Trimmed Hi-C reads"]
 Lineage: vertebrata_odb10
-Minimum Mapping Quality: '20'
+Minimum Mapping Quality: '10'
 Restriction enzymes: arima2
 Species Name: "["Species Name"]"
 Trim Hi-C Data?: false
