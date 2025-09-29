@@ -96,7 +96,7 @@ def main():
                 good_invocations[i]={key:gi.invocations.show_invocation(key)['create_time']  for key,value in invocation_states[i].items() if value not in failed_states}
 
         clean_good_invocations={key: value for key, value in good_invocations.items() if value}
-        failed_runs=[workflow for workflow in good_invocations.keys() if workflow not in clean_dict.keys()]
+        failed_runs=[workflow for workflow in good_invocations.keys() if workflow not in clean_good_invocations.keys()]
         
         invocations_ids={}
         for wkfl in invocation_columns:
