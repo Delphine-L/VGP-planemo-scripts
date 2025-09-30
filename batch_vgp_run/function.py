@@ -89,6 +89,12 @@ def get_worfklow(Compatible_version, workflow_name, workflow_repo):
 					zip_ref.extract(path=workflow_repo, member=item) 
 			os.remove(archive_path)
 			shutil.move(workflow_repo+extracted_path, file_path)
+			with open(file_path, 'r+') as wf_file:
+				workflow_data = json.load(wf_file)
+				workflow_data['name'] = f"{workflow_data.get('name', workflow_name)} - v{release_number}"
+				wf_file.seek(0)
+				json.dump(workflow_data, wf_file, indent=4)
+				wf_file.truncate()
 		os.rmdir(workflow_repo+workflow_name+"-"+Compatible_version+"/")
 	return file_path, release_number
 
@@ -101,11 +107,7 @@ def get_datasets_ids(invocation):
 	return dic_datasets_ids
 
 
-def fix_parameters(entered_suffix, entered_directory, entered_url):
-	if entered_directory[-1]=="/":
-		wfl_dir=entered_directory
-	else: 
-		wfl_dir=entered_directory+"/"
+def fix_parameters(entered_suffix, entered_url):
 	if entered_suffix!='':
 		suffix_run='_'+entered_suffix
 	else:
@@ -115,4 +117,13 @@ def fix_parameters(entered_suffix, entered_directory, entered_url):
 		validurl=entered_url
 	else:
 		validurl='https://'+entered_url
-	return suffix_run,wfl_dir,validurl
+	return suffix_run,validurl
+
+
+
+def fix_directory(entered_directory):
+	if entered_directory[-1]=="/":
+		wfl_dir=entered_directory
+	else: 
+		wfl_dir=entered_directory+"/"
+	return wfl_dir
