@@ -186,8 +186,11 @@ def main():
 
         if version_wfl=='fcs':
             species_name=spec_name.replace("_"," ")
-            datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name, '--as-json-lines']
-            data_type=subprocess.run(datasets_command, capture_output=True, text=True, check=True)
+            try:
+                datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name, '--as-json-lines']
+                data_type=subprocess.run(datasets_command, capture_output=True, text=True, check=True)
+            except:
+                raise SystemExit(f"Error running datasets command. Please check you have the latest version of the NCBI datasets tool installed (https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-start/).")
             taxon_data=json.loads(data_type.stdout)
             taxon_ID=taxon_data['taxonomy']['tax_id']
             taxon_name=taxon_data['taxonomy']['current_scientific_name']['name']
