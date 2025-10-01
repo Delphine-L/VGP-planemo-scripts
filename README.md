@@ -61,7 +61,10 @@ Use a workflow existing in Galaxy **(--from_id)**:
 Usage:
 
 ````bash
-  python <path to scripts>/batch_vgp_run/prepare_wf1.py -t <Table with file paths> -g <Galaxy url> -k <API Key>  [--from_file -w <Workflow Directory>  -v <Workflow version> ] [--from_id -i <Workflow ID>] -s <Suffix> 
+  python <path to scripts>/batch_vgp_run/prepare_wf1.py -t <Table with file paths> -g <Galaxy url> -k <API Key>  
+          [--from_file -w <Workflow Directory>  -v <Workflow version> ] 
+          [--from_id -i <Workflow ID>] 
+      -s <Suffix> 
 ````
 
 ### Output
@@ -112,7 +115,10 @@ Use a workflow existing in Galaxy **(--from_id)**:
 Usage workflow 4:
 
 ````bash
-  python <path to scripts>/batch_vgp_run/prepare_wf4.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key> [--from_file -w <Workflow Directory>  -v <Workflow version> ] [--from_id -i <Workflow ID>] -s <Optional suffix>
+  python <path to scripts>/batch_vgp_run/prepare_wf4.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key> 
+          [--from_file -w <Workflow Directory>  -v <Workflow version> ] 
+          [--from_id -i <Workflow ID>]
+      -s <Optional suffix>
 ````
 
 Usage workflow 3:
@@ -175,7 +181,10 @@ Use a workflow existing in Galaxy **(--from_id)**:
 Usage:
 
 ````bash
-  python <path to scripts>/batch_vgp_run/prepare_wf8.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  [--from_file -w <Workflow Directory>  -v <Workflow version> ] [--from_id -i <Workflow ID>] -s <Optional suffix> -1
+  python <path to scripts>/batch_vgp_run/prepare_wf8.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  
+          [--from_file -w <Workflow Directory>  -v <Workflow version> ] 
+          [--from_id -i <Workflow ID>] 
+      -s <Optional suffix> -1
 ````
 
 > Note: You can run this step even if some of your invocations are not finished. The script will skip lines with incomplete invocations and lines that have already been processed. If you want to re-generate the files and command for a species, delete the file `${assembly_ID}/job_files/w8_${assembly_ID}_${haplotype}.yaml`.
@@ -229,7 +238,10 @@ Use a workflow existing in Galaxy **(--from_id)**:
 Usage:
 
 ````bash
-  python <path to scripts>/batch_vgp_run/prepare_wf8.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  [--from_file -w <Workflow Directory>  -v <Workflow version> ] [--from_id -i <Workflow ID>] -s <Optional suffix> -1
+  python <path to scripts>/batch_vgp_run/prepare_wf8.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  
+        [--from_file -w <Workflow Directory>  -v <Workflow version> ] 
+        [--from_id -i <Workflow ID>] 
+    -s <Optional suffix> -1
 ````
 
 >> WARNING: By default this command will use the decontamination workflow with Kraken. To use the version with FCS-Gx, download the workflow and provide the path to the file instead of the version number after the option `-v`
@@ -279,7 +291,10 @@ Use a workflow existing in Galaxy **(--from_id)**:
 Usage:
 
 ````bash
-  python <path to scripts>/batch_vgp_run/prepare_wf0.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  [--from_file -w <Workflow Directory>  -v <Workflow version> ] [--from_id -i <Workflow ID>] -e <Email> -s <Optional suffix> -1
+  python <path to scripts>/batch_vgp_run/prepare_wf0.py  -t  <Tracking table>  -g <Galaxy Instance> -k <API Key>  
+        [--from_file -w <Workflow Directory>  -v <Workflow version> ] 
+        [--from_id -i <Workflow ID>] 
+    -e <Email> -s <Optional suffix> -1
 ````
 
 > Note: You can run this step even if some of your invocations are not finished. The script will skip lines with incomplete invocations and lines that have already been processed. If you want to re-generate the files and command for a species, delete the file `${assembly_ID}/job_files/w9_${assembly_ID}_${haplotype}.yaml`.
