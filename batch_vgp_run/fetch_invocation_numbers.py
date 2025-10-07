@@ -54,11 +54,11 @@ def main():
 
     for i,row in infos.iterrows():
         spec_id=row['Assembly']
-        if history_id_present:
+        if history_id_present and row['History_id']!='NA':
             history_id=row['History_id']
         else:
             result_wf1=row['Results_wf1'].split('/')[-1]
-            history_name=result_wf1.replace('wf1_','').replace('.yml','')
+            history_name=result_wf1.replace('wf1_','').replace('.json','')
             history_list = gi.histories._get_histories(name=history_name)
             if len(history_list)>1:
                 print("Warning: Multiple histories called "+history_name+". Most recent selected. If this is incorrect, replace the value in the column 'History_id' and rerun.")
