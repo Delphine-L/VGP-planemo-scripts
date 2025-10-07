@@ -49,16 +49,17 @@ def main():
     history_id_present=False
     if 'History_id' in list(infos.columns):
         history_id_present=True
-
     list_histories=[]
 
     for i,row in infos.iterrows():
         spec_id=row['Assembly']
-        if history_id_present and row['History_id']!='NA':
+        if history_id_present and not pandas.isna(row['History_id']):
             history_id=row['History_id']
+            print("Using history id "+str(history_id)+" for assembly "+spec_id)
         else:
             result_wf1=row['Results_wf1'].split('/')[-1]
             history_name=result_wf1.replace('wf1_','').replace('.json','')
+            print("Searching history for assembly "+spec_id+" with name "+history_name)
             history_list = gi.histories._get_histories(name=history_name)
             if len(history_list)>1:
                 print("Warning: Multiple histories called "+history_name+". Most recent selected. If this is incorrect, replace the value in the column 'History_id' and rerun.")
@@ -124,7 +125,7 @@ def main():
     for col in invocation_columns:
         infos[col]=dictionary_column_content[col]
 
-
+    infos['History_id']=list_histories
     infos.to_csv(args.track_table, sep='\t', header=True, index=False)
 
 
