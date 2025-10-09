@@ -32,6 +32,7 @@ def main():
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf8_mCteGun2_v2.0.yaml)") 
+    parser.add_argument('-f', '--fast_upload', action='store_true', required=False,  help="Optional: Use fast simultaneous uploads to Galaxy. Warning: May cause errors if there are failed datasets in your history. Use with caution.") 
 
     group = parser.add_argument_group("Haplotype","Select one and only one of these options to specify what haplotype you are scaffolding")
     haps = group.add_mutually_exclusive_group() 
@@ -47,11 +48,14 @@ def main():
 
     use_id = parser.add_argument_group("Workflow ID","If you already have the workflow in your Galaxy instance, use the following options to use the workflow ID.")
     use_id.add_argument('--from_id', action='store_true', required=False, help='Use a workflow ID.')
-    use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  required=False, help="Workflow ID.")
+    use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  default="",  required=False, help="Workflow ID.")
 
     args = parser.parse_args()
 
-
+    fast_upload=""
+    if args.fast_upload:
+        fast_upload="  --simultaneous_uploads --check_uploads_ok"
+    
     path_script=str(pathlib.Path(__file__).parent.resolve())
 
     suffix_run,galaxy_instance=function.fix_parameters(args.suffix, args.instance)
@@ -65,14 +69,14 @@ def main():
     elif not args.from_id and not args.from_file:
         raise SystemExit("Error: Please select one of the two options: --from_id or --from_file.")
     elif args.from_file:
-        if args.wfl_version==False:
+        if args.wfl_version=="":
             raise SystemExit("Missing option: -v. If you select the --from_file option, you need to provide a workflow version.") 
-        elif args.wfl_dir==False:
+        elif args.wfl_dir=="":
             raise SystemExit("Missing option: -w. If you select the --from_file option, you need to provide a workflow directory.")
         wfl_dir=function.fix_directory(args.wfl_dir)
         worfklow_path, release_number = function.get_worfklow(Compatible_version, workflow_name, wfl_dir)
     elif args.from_id:
-        if args.wfl_id==False:
+        if args.wfl_id=="":
             raise SystemExit("Missing option: -i. If you select the --from_id option, you need to provide a workflow ID.")
         worfklow_path = args.wfl_id
         release_number = 'NA'
@@ -171,7 +175,7 @@ def main():
         history_id=wf4_inv['history_id']
         list_yml.append(yml_file)
         list_res.append(res_file)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+"  --simultaneous_uploads --check_uploads_ok --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+fast_upload+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf8_run_sample.yaml", 'r') as sample_file:

@@ -168,6 +168,7 @@ General inputs:
 3. The API key for your Galaxy instance  **(-k)**
 4. The haplotype being assembled: **-1** for Haplotype 1,  **-2** for Haplotype 2,  **-p** for paternal haplotype , or  **-m** for maternal haplotype.
 5. Optional: a suffix for the analysis **(-s)** (e.g. `2.0` will produce files called `wf8_$S{assembly_ID}_2.0.yaml` )
+6. Optional: Use fast simultaneous uploads to Galaxy  **(-f)** . Warning: May cause errors if there are failed datasets in your history. Use with caution.
 
 Upload a new workflow to Galaxy **(--from_file)**:
 

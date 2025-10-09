@@ -41,7 +41,7 @@ def main():
 
     use_id = parser.add_argument_group("Workflow ID","If you already have the workflow in your Galaxy instance, use the following options to use the workflow ID.")
     use_id.add_argument('--from_id', action='store_true', required=False, help='Use a workflow ID.')
-    use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  required=False, help="Workflow ID.")
+    use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  required=False,  default="", help="Workflow ID.")
       
     args = parser.parse_args()
 
@@ -62,14 +62,14 @@ def main():
     elif not args.from_id and not args.from_file:
         raise SystemExit("Error: Please select one of the two options: --from_id or --from_file.")
     elif args.from_file:
-        if args.wfl_version==False:
+        if args.wfl_version=="":
             raise SystemExit("Missing option: -v. If you select the --from_file option, you need to provide a workflow version.") 
-        elif args.wfl_dir==False:
+        elif args.wfl_dir=="":
             raise SystemExit("Missing option: -w. If you select the --from_file option, you need to provide a workflow directory.")
         wfl_dir=function.fix_directory(args.wfl_dir)
         worfklow_path, release_number = function.get_worfklow(Compatible_version, workflow_name, wfl_dir)
     elif args.from_id:
-        if args.wfl_id==False:
+        if args.wfl_id=="":
             raise SystemExit("Missing option: -i. If you select the --from_id option, you need to provide a workflow ID.")
         worfklow_path = args.wfl_id
         release_number = 'NA'
@@ -154,7 +154,7 @@ def main():
         list_res.append(res_file)
         history_id=wf1_inv['history_id']
         list_histories.append(history_id)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --check_uploads_ok --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf0_run.sample.yaml", 'r') as sample_file:

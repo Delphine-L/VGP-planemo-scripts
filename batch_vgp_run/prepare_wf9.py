@@ -48,7 +48,7 @@ def main():
 
     use_id = parser.add_argument_group("Workflow ID","If you already have the workflow in your Galaxy instance, use the following options to use the workflow ID.")
     use_id.add_argument('--from_id', action='store_true', required=False, help='Use a workflow ID.')
-    use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  required=False, help="Workflow ID.")
+    use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  required=False,  default="", help="Workflow ID.")
     use_id.add_argument('-l', action='store_true', required=False, help='The workflow is the legacy version (before v0.9) using Kraken.')
     use_id.add_argument('-f', action='store_true', required=False, help='The workflow is the new version (from v0.9) using FCS-GX.')
 
@@ -75,14 +75,18 @@ def main():
 
     gi = GalaxyInstance(galaxy_instance, args.apikey)
  
+    if args.l and args.f:
+        raise SystemExit("Error: Please select only one of the two options: -l or -f.")
+    elif not args.l and not args.f:
+        raise SystemExit("Error: Please select one of the two options: -l or -f.")  
     if args.from_id and args.from_file:
         raise SystemExit("Error: Please select only one of the two options: --from_id or --from_file.")
     elif not args.from_id and not args.from_file:
         raise SystemExit("Error: Please select one of the two options: --from_id or --from_file.")
     elif args.from_file:
-        if args.wfl_version==False:
+        if args.wfl_version=="":
             raise SystemExit("Missing option: -v. If you select the --from_file option, you need to provide a workflow version.") 
-        elif args.wfl_dir==False:
+        elif args.wfl_dir=="":
             raise SystemExit("Missing option: -w. If you select the --from_file option, you need to provide a workflow directory.")
         try:
             version_wf9=float(args.wfl_version)
@@ -102,7 +106,7 @@ def main():
         else:
             sample_job_file=path_script+"/templates/wf9_run_sample_legacy.yaml"
     elif args.from_id:
-        if args.wfl_id==False:
+        if args.wfl_id=="":
             raise SystemExit("Missing option: -i. If you select the --from_id option, you need to provide a workflow ID.")
         if args.l and args.f:
             raise SystemExit("Error: Please select only one of the two options: -l or -f.")
@@ -204,7 +208,6 @@ def main():
         
         list_yml.append(yml_file)
         list_res.append(res_file)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(sample_job_file, 'r') as sample_file:
