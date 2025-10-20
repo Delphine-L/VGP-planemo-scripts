@@ -32,7 +32,6 @@ def main():
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf8_mCteGun2_v2.0.yaml)") 
-    parser.add_argument('-f', '--fast_upload', action='store_true', required=False,  help="Optional: Use fast simultaneous uploads to Galaxy. Warning: May cause errors if there are failed datasets in your history. Use with caution.") 
 
     group = parser.add_argument_group("Haplotype","Select one and only one of these options to specify what haplotype you are scaffolding")
     haps = group.add_mutually_exclusive_group() 
@@ -43,7 +42,7 @@ def main():
  
     use_file = parser.add_argument_group("Workflow File","Use the following options to use a workflow file.")
     use_file.add_argument('--from_file', action='store_true', required=False, help='Use a workflow file.')
-    use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="3.0", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 3.0)")    
+    use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="3.1", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 3.1)")    
     use_file.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=False,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
 
     use_id = parser.add_argument_group("Workflow ID","If you already have the workflow in your Galaxy instance, use the following options to use the workflow ID.")
@@ -51,10 +50,6 @@ def main():
     use_id.add_argument('-i', '--wfl_id', dest="wfl_id",  default="",  required=False, help="Workflow ID.")
 
     args = parser.parse_args()
-
-    fast_upload=""
-    if args.fast_upload:
-        fast_upload="  --simultaneous_uploads --check_uploads_ok"
     
     path_script=str(pathlib.Path(__file__).parent.resolve())
 
@@ -139,7 +134,7 @@ def main():
 
         res_file=species_path+"invocations_json/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".json"
         yml_file=species_path+"job_files/wf8_"+spec_id+suffix_run+"_"+hap_for_path+".yml"
-        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf8.log"
+        log_file=species_path+"planemo_log/"+spec_id+suffix_run+"_wf8_"+hap_for_path+".log"
 
         if os.path.exists(yml_file):
             print("Skipped "+spec_id+"_"+hap_for_path+": Files and command already generated")
@@ -168,14 +163,17 @@ def main():
         dic_data_ids['haplotype']=haplotype
         dic_data_ids['gfa_assembly']=dic_data_ids[gfa_input]
 
-        gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
+        if os.path.exists(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf'):
+            print("WF4 report already downloaded for "+spec_id)
+        else:
+            gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
 
         list_reports.append(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
 
         history_id=wf4_inv['history_id']
         list_yml.append(yml_file)
         list_res.append(res_file)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+fast_upload+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+"  --simultaneous_uploads --check_uploads_ok --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
         with open(path_script+"/templates/wf8_run_sample.yaml", 'r') as sample_file:

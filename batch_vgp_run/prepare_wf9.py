@@ -43,7 +43,7 @@ def main():
 
     use_file = parser.add_argument_group("Workflow File","Use the following options to use a workflow file.")
     use_file.add_argument('--from_file', action='store_true', required=False, help='Use a workflow file.')
-    use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.8", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.8)")    
+    use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="1.1", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 1.1)")    
     use_file.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=False,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
 
     use_id = parser.add_argument_group("Workflow ID","If you already have the workflow in your Galaxy instance, use the following options to use the workflow ID.")

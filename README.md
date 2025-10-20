@@ -52,7 +52,7 @@ General Inputs:
 Upload a new workflow to Galaxy **(--from_file)**:
 
 1. The directory containing the workflows **(-w)**. If the directory doesn't exist, it will be created. If the workflow file isn't in the directory, the workflow will be downloaded.
-2. Optional: Specify a workflow version to use, Default is 0.4 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
+2. Optional: Specify a workflow version to use, Default is 0.5 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
 
 Use a workflow existing in Galaxy **(--from_id)**:
 
@@ -106,7 +106,7 @@ General inputs:
 Upload a new workflow to Galaxy **(--from_file)**:
 
 1. The directory containing the workflows **(-w)**. If the directory doesn't exist, it will be created. If the workflow file isn't in the directory, the workflow will be downloaded.
-2. Optional: Specify a workflow version to use, Default is 0.3.13 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
+2. Optional: Specify a workflow version to use, Default is 0.4 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
 
 Use a workflow existing in Galaxy **(--from_id)**:
 
@@ -173,7 +173,7 @@ General inputs:
 Upload a new workflow to Galaxy **(--from_file)**:
 
 1. The directory containing the workflows **(-w)**. If the directory doesn't exist, it will be created. If the workflow file isn't in the directory, the workflow will be downloaded.
-2. Optional: Specify a workflow version to use, Default is 3.0 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
+2. Optional: Specify a workflow version to use, Default is 3.1 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
 
 Use a workflow existing in Galaxy **(--from_id)**:
 
@@ -226,14 +226,14 @@ General inputs:
 Upload a new workflow to Galaxy **(--from_file)**:
 
 1. The directory containing the workflows **(-w)**. If the directory doesn't exist, it will be created. If the workflow file isn't in the directory, the workflow will be downloaded.
-2. Optional: Specify a workflow version to use, Default is 0.2 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
+2. Optional: Specify a workflow version to use, Default is 1.1 **(-v)**. Warning: Changing this parameter may cause errors if the workflow inputs are different from the default version.
 
 Use a workflow existing in Galaxy **(--from_id)**:
 
 1. The Galaxy ID of workflow VGP1 **(-i)**.
 2. The version of the decontamination workflow:
     - Legacy **(-l)** (before 0.9) with Kraken2.
-    - New **(-k)** (from 0.9) with NCBI FCS-GX.
+    - New **(-f)** (from 1.0) with NCBI FCS-GX.
 
 
 Usage:

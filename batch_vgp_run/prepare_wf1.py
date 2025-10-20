@@ -35,7 +35,7 @@ def main():
     
     use_file = parser.add_argument_group("Workflow File","Use the following options to use a workflow file.")
     use_file.add_argument('--from_file', action='store_true', required=False, help='Use a workflow file.')
-    use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.4", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.4)")    
+    use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.5", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.5)")    
     use_file.add_argument('-w', '--wfl_dir', dest="wfl_dir",  required=False,  default="", help="Directory containing the workflows. If the directory doesn't exist, it will be created and the workflow downloaded.") 
 
     use_id = parser.add_argument_group("Workflow ID","If you already have the workflow in your Galaxy instance, use the following options to use the workflow ID.")
@@ -110,7 +110,7 @@ def main():
         filedata = filedata.replace('["assembly_name"]', spec_id )
         with open(yml_file, 'w') as yaml_wf1:
             yaml_wf1.write(filedata)
-        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --simultaneous_uploads --check_uploads_ok --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1 &"
+        cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key $MAINKEY --simultaneous_uploads --check_uploads_ok --history_name "+spec_id+suffix_run+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1 &"
         commands.append(cmd_line)
         print(cmd_line)
     infos["Job_File_wf1"]=list_yml
