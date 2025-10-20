@@ -103,18 +103,36 @@ def main():
         for wkfl in invocation_columns:
             if row[wkfl]=='NA':
                 wkfl_name=wkfl.replace('Invocation_wf','VGP')
+                print("Searching invocation for workflow "+wkfl_name+" for assembly "+spec_id)
+                if "VGP8" in wkfl_name:
+                    wkfl_name="VGP8"
+                    haplotype=wkfl.split('_')[-1]
                 run_names=[name for name in list(good_invocations.keys()) if wkfl_name in name]
                 if len(run_names)>0:
-                    run_names=run_names[0]
-                    invocations_ids[wkfl]=good_invocations[run_names]
+                    list_invocs= [good_invocations[i] for i in  run_names]
+                    merged_dict = {}
+                    if  wkfl_name=="VGP8":
+                        for d in list_invocs:
+                            for key in d.keys():
+                                if key not in merged_dict:
+                                    invoc_hap=gi.invocations.show_invocation(key)['input_step_parameters']['Haplotype']['parameter_value'].replace('Haplotype ','hap')
+                                    if haplotype==invoc_hap:
+                                        merged_dict[key] = d[key]
+                    else:
+                        for d in list_invocs:
+                            for key in d.keys():
+                                if key not in merged_dict:
+                                    merged_dict[key] = d[key]
+                    invocations_ids[wkfl]=merged_dict
+
                     if len(invocations_ids[wkfl])>1:
-                        print("Warning: Multiple valid invocations for workflow "+run_names+" for assembly "+spec_id+". Most recent selected. If this is incorrect, replace the value in the column '"+wkfl+"'.")
+                        print("Warning: Multiple valid invocations for workflow "+wkfl.replace('Invocation_wf','VGP')+" for assembly "+spec_id+". Most recent selected. If this is incorrect, replace the value in the column '"+wkfl+"'.")
                         sorted_invocations= sorted(invocations_ids[wkfl].items(), key=lambda item: item[1],reverse=True)
                         invocation_latests=sorted_invocations[0][0]
                     elif len(invocations_ids[wkfl])==1: 
                         invocation_latests=list(invocations_ids[wkfl].keys())[0]
                     else:
-                        print("Warning: All invocations for workflow "+run_names+" are in a failed state for assembly "+spec_id+".")
+                        print("Warning: All invocations for workflow "+wkfl.replace('Invocation_wf','VGP')+" are in a failed state for assembly "+spec_id+".")
                         invocation_latests='NA'
                     dictionary_column_content[wkfl].append(invocation_latests)
                 else:
