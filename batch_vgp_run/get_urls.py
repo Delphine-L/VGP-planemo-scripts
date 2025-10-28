@@ -33,12 +33,12 @@ def get_urls(species_name,species_id):
 	res_cmd_hic=subprocess.run(command_hic.split(), capture_output=True, text=True, check=True)
 	list_hifi=res_cmd_hifi.stdout.split('\n')
 	list_hic=res_cmd_hic.stdout.split('\n')
-	list_hifi= [ i for i in res_cmd_hifi.stdout.split('\n') if re.search(r'fastq.gz$',i) ]
-	list_hic= [ i for i in res_cmd_hic.stdout.split('\n') if re.search(r'fastq.gz$',i) ]
+	list_hifi= [ i for i in res_cmd_hifi.stdout.split('\n') if re.search(r'f(ast)?q.gz$',i) ]
+	list_hic= [ i for i in res_cmd_hic.stdout.split('\n') if re.search(r'f(ast)?q.gz$',i) ]
 	list_hic_f= [ i for i in list_hic if re.search(r'R1',i) ]
 	list_hic_r= [ i for i in list_hic if re.search(r'R2',i) ]
 	if len(list_hifi)==0:
-		print('Warning: No Hifi reads found for '+species_id+'. Please verify the species name and assembly ID.')
+		print('Warning: No Hifi reads found for '+species_id+'. Please verify the species name and assßßembly ID.')
 		hifi_reads="NA"
 	else:
 		res_table_hifi=pd.read_table(StringIO("\n".join(list_hifi)),sep=r'\s+',header=None)
