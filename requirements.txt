@@ -1,4 +1,4 @@
-# VGP Planemo Scripts - Python Dependencies
+ # VGP Planemo Scripts - Python Dependencies
 
 # Core dependencies
 bioblend>=1.0.0
@@ -9,5 +9,5 @@ requests>=2.20.0
 # Planemo for workflow execution
 planemo>=0.74.0
 
-# Optional: AWS CLI (for GenomeArk data access)
-# Install separately: pip install awscli
+# AWS CLI for GenomeArk data access (required for --fetch-urls option)
+awscli>=1.27.0

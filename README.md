@@ -37,7 +37,9 @@ pip install .
 # https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/
 ````
 
-**AWS CLI** (optional, for direct GenomeArk access):
+**AWS CLI** (included with pip installation, required for `--fetch-urls` option):
+
+When installing via pip, AWS CLI is installed automatically. If running from source without pip, install it manually:
 
 ````bash
 pip install awscli
@@ -54,6 +56,9 @@ vgp-run-all --help
 # Check utility tools
 vgp-get-urls --help
 vgp-download-reports --help
+
+# Verify AWS CLI (for --fetch-urls option)
+aws --version
 ````
 
 ## Command-Line Tools
@@ -238,7 +243,7 @@ vgp-run-all -t species_list.tsv -p profile.yaml -m ./metadata --fetch-urls --id
 # ============================================================
 ````
 
-**Note**: The `--fetch-urls` option requires AWS CLI to be installed (`pip install awscli`). It cannot be used with `--resume`.
+**Note**: The `--fetch-urls` option requires AWS CLI (included with pip installation). It cannot be used with `--resume`.
 
 **Resume a previous run**:
 
@@ -265,7 +270,7 @@ python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --resu
 - **-m, --metadata_directory**: Directory to store run metadata (default: `./`)
 - **--id**: Use workflow IDs from profile (workflows must exist in your Galaxy account) - **Recommended**
 - **--version**: Use workflow versions from profile (downloads workflows automatically)
-- **--fetch-urls**: Automatically fetch GenomeArk file paths (requires AWS CLI, input table must be 2 columns only)
+- **--fetch-urls**: Automatically fetch GenomeArk file paths (AWS CLI included with installation, input table must be 2 columns only)
 - **-s, --suffix**: Optional suffix for this run (e.g., `v2.0`)
 - **-c, --concurrent**: Number of species to process in parallel (default: 3)
 - **--resume**: Resume a previous run using saved metadata
