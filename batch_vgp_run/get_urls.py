@@ -39,16 +39,30 @@ def get_urls(species_name,species_id):
 	else:
 		res_table_hifi=pd.read_table(StringIO("\n".join(list_hifi)),sep=r'\s+',header=None)
 		hifi_reads = ",".join(res_table_hifi[3])
-	if len(list_hic_f)==0 or len(list_hic_f)==0:
+	if len(list_hic_f)==0 or len(list_hic_r)==0:
 		hic_reverse="NA"
 		hic_forward="NA"
 	else:
+		# Check that forward and reverse reads are properly paired
+		if len(list_hic_f) != len(list_hic_r):
+			raise SystemExit(f"Error: Number of Hi-C forward reads ({len(list_hic_f)}) does not match number of reverse reads ({len(list_hic_r)}) for {species_id}. Found:\n  Forward (R1): {len(list_hic_f)} files\n  Reverse (R2): {len(list_hic_r)} files")
+
 		res_table_hic_f=pd.read_table(StringIO("\n".join(list_hic_f)),sep=r'\s+',header=None)
 		res_table_hic_f=res_table_hic_f.sort_values(by=3)
 		res_table_hic_r=pd.read_table(StringIO("\n".join(list_hic_r)),sep=r'\s+',header=None)
 		res_table_hic_r=res_table_hic_r.sort_values(by=3)
 		hic_forward= ",".join(res_table_hic_f[3])
 		hic_reverse = ",".join(res_table_hic_r[3])
+
+		# Verify pairing by comparing base filenames (handles R1/R2, _1/_2, .1/.2, etc.)
+		# Replace common forward/reverse indicators with a placeholder
+		forward_bases = [re.sub(r'[_\.]?[Rr]?1[_\.]', '_PAIR.', f) for f in res_table_hic_f[3]]
+		reverse_bases = [re.sub(r'[_\.]?[Rr]?2[_\.]', '_PAIR.', f) for f in res_table_hic_r[3]]
+		if forward_bases != reverse_bases:
+			print(f"Warning: Hi-C read pairs for {species_id} may not be properly matched. Please verify filenames:")
+			for f, r in zip(res_table_hic_f[3], res_table_hic_r[3]):
+				print(f"  {f} <-> {r}")
+
 	return hifi_reads,hic_type,hic_forward,hic_reverse
 
 
