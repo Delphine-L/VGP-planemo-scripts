@@ -160,8 +160,8 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, i
     Stores found history_id in metadata for reuse across all workflow searches.
 
     Priority:
-    1. Return cached history_id if exists in metadata
-    2. Get from invocation_id if provided (most reliable)
+    1. Get from invocation_id if provided (most reliable)
+    2. Return cached history_id if exists in metadata (only during resume)
     3. Search by history name (only during resume, may not be accurate if duplicates exist)
 
     Args:
@@ -169,16 +169,12 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, i
         list_metadata (dict): Metadata dictionary
         assembly_id (str): Assembly ID
         invocation_id (str, optional): Invocation ID to get history from
-        is_resume (bool): Whether this is a resume run (enables history name search)
+        is_resume (bool): Whether this is a resume run (enables history search)
 
     Returns:
         str: history_id or None if not found
     """
-    # Return cached if exists
-    if 'history_id' in list_metadata[assembly_id] and list_metadata[assembly_id]['history_id'] != 'NA':
-        return list_metadata[assembly_id]['history_id']
-
-    # Get from invocation if provided (most reliable method)
+    # Get from invocation if provided (most reliable method - works for both new and resume runs)
     if invocation_id:
         try:
             invocation_details = gi.invocations.show_invocation(str(invocation_id))
@@ -190,9 +186,15 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, i
         except Exception as e:
             print(f"Warning: Could not get history from invocation {invocation_id}: {e}")
 
-    # Fallback: Search by history name (only during resume, may not be accurate if duplicates)
+    # For new runs (not resume), don't search for history - it will be created by WF1
     if not is_resume:
         return None
+
+    # Return cached if exists (only during resume)
+    if 'history_id' in list_metadata[assembly_id] and list_metadata[assembly_id]['history_id'] != 'NA':
+        return list_metadata[assembly_id]['history_id']
+
+    # Fallback: Search by history name (only during resume, may not be accurate if duplicates)
 
     history_name = list_metadata[assembly_id]['History_name']
     try:
@@ -419,13 +421,13 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     history_name=list_metadata[assembly_id]['History_name']
     suffix_run=profile_data['Suffix']
 
-    # Try to get history_id (will be updated once we have an invocation)
-    # Only search by name during resume
+    # Try to get history_id (only during resume - for new runs it will be created by WF1)
     history_id = get_or_find_history_id(gi, list_metadata, assembly_id, is_resume=is_resume)
-    if history_id:
-        print(f"Using Galaxy history: {history_id}")
-    elif is_resume:
-        print(f"Note: No history found yet for {assembly_id}. Will retrieve from first invocation.")
+    if is_resume:
+        if history_id:
+            print(f"Using Galaxy history: {history_id}")
+        else:
+            print(f"Note: No history found yet for {assembly_id}. Will retrieve from first invocation.")
 
     # Cache for history invocations (lazy initialization to minimize API calls)
     # Only built when we need to search for missing invocations
