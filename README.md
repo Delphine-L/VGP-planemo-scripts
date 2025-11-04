@@ -122,6 +122,7 @@ python batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> --add -
 ### Features
 
 - **Fully automated**: Runs all workflows in the correct dependency order
+- **Automatic URL fetching**: Optional `--fetch-urls` flag to automatically fetch GenomeArk file paths
 - **Parallel processing**: Process multiple species concurrently (default: 3 species)
 - **Smart resuming**: Automatically recovers invocation data from Galaxy history if JSON files are missing
 - **Incremental metadata saving**: Per-species metadata files preserve progress at each workflow checkpoint
@@ -202,6 +203,43 @@ vgp-run-all \
 python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --version
 ````
 
+**Automatic URL fetching** (--fetch-urls, fetches GenomeArk file paths automatically):
+
+Use this option when your input table only contains Species and Assembly columns (2 columns, no headers). The script will automatically fetch file URLs from GenomeArk.
+
+````bash
+# If installed via pip
+vgp-run-all \
+  -t <Simple species table> \
+  -p <Profile YAML file> \
+  -m <Metadata directory> \
+  --fetch-urls \
+  --id \
+  [-s <Suffix>] \
+  [-c <Concurrent processes>]
+
+# Example with a simple 2-column input file:
+# species_list.tsv contents:
+#   Taeniopygia_guttata	bTaeGut2
+#   Corvus_moneduloides	bCorMon1
+
+vgp-run-all -t species_list.tsv -p profile.yaml -m ./metadata --fetch-urls --id
+
+# Output:
+# ============================================================
+# Fetching GenomeArk file URLs...
+# ============================================================
+# Fetching URLs for bTaeGut2 (Taeniopygia_guttata)...
+#   ✓ Found arima Hi-C data
+# Fetching URLs for bCorMon1 (Corvus_moneduloides)...
+#   ✓ Found dovetail Hi-C data
+#
+# ✓ GenomeArk URLs saved to: tracking_runs_species_list.tsv
+# ============================================================
+````
+
+**Note**: The `--fetch-urls` option requires AWS CLI to be installed (`pip install awscli`). It cannot be used with `--resume`.
+
 **Resume a previous run**:
 
 ````bash
@@ -220,11 +258,14 @@ python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --resu
 
 ### Parameters
 
-- **-t, --table**: Table with species and file paths (output from `get_urls.py`)
+- **-t, --table**: Table with species information. Can be:
+  - Full tracking table with file paths (output from `get_urls.py`)
+  - Simple 2-column table (Species, Assembly) when using `--fetch-urls`
 - **-p, --profile**: Path to profile YAML file with Galaxy credentials and workflow IDs/versions
 - **-m, --metadata_directory**: Directory to store run metadata (default: `./`)
 - **--id**: Use workflow IDs from profile (workflows must exist in your Galaxy account) - **Recommended**
 - **--version**: Use workflow versions from profile (downloads workflows automatically)
+- **--fetch-urls**: Automatically fetch GenomeArk file paths (requires AWS CLI, input table must be 2 columns only)
 - **-s, --suffix**: Optional suffix for this run (e.g., `v2.0`)
 - **-c, --concurrent**: Number of species to process in parallel (default: 3)
 - **--resume**: Resume a previous run using saved metadata
