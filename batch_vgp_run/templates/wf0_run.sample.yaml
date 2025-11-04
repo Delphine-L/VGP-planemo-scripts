@@ -3,6 +3,6 @@
 "Collection of Pacbio Data": 
   class: Collection
   collection_type: list
-  galaxy_id:  ["Collection of Pacbio Data"]
+  galaxy_id:  ["HiFi reads without adapters"]
 "Email adress": "["email"]"
 "Genetic Code": '2'
