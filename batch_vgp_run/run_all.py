@@ -3,13 +3,14 @@ import argparse
 import pandas
 import re
 import pathlib
-import function
+import batch_vgp_run.function as function
 from bioblend.galaxy import GalaxyInstance
 import textwrap
 import os
 import yaml
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from batch_vgp_run.get_urls import get_urls
 
 
 
@@ -33,15 +34,72 @@ def main():
     parser.add_argument('-c', '--concurrent', required=False,  default="3", help="Number of concurrent processes to use (default: 3)") 
     parser.add_argument('-p', '--profile', dest="profile",  required=False,  default="", help="Path to the profile file. (See profile.sample.yaml for an example)") 
     parser.add_argument('-m', '--metadata_directory', required=False,  default="./", help="Path to the directory for run metadata.") 
-    parser.add_argument('-i', '--id', required=False, help='The Profile contains the workflow IDs. This option is mutually exclusive with the --version option and will use the workflow in your Galaxy instance.')
-    parser.add_argument('-v', '--version', required=False, help='The Profile contains the workflow versions. This option is mutually exclusive with the --id option and will download the workflows.')
+    parser.add_argument('-i', '--id', action='store_true', required=False, help='The Profile contains the workflow IDs. This option is mutually exclusive with the --version option and will use the workflow in your Galaxy instance.')
+    parser.add_argument('-v', '--version', action='store_true', required=False, help='The Profile contains the workflow versions. This option is mutually exclusive with the --id option and will download the workflows.')
     parser.add_argument('-r', '--resume', required=False, action='store_true',  help='Resume a previous run using the metadata json file produced at the end of the run_all.py script and found in the metadata directory.')
     parser.add_argument('--retry-failed', required=False, action='store_true',  help='When used with --resume, automatically retry any failed or cancelled invocations by launching them again.')
+    parser.add_argument('--fetch-urls', required=False, action='store_true',  help='Fetch GenomeArk file URLs before running workflows. Use this when the input table only contains Species and Assembly columns (no file paths).')
     args = parser.parse_args()
 
     # Validate that --retry-failed is only used with --resume
     if args.retry_failed and not args.resume:
         raise SystemExit("Error: --retry-failed can only be used with --resume option.")
+
+    # Validate that --fetch-urls is not used with --resume
+    if args.fetch_urls and args.resume:
+        raise SystemExit("Error: --fetch-urls cannot be used with --resume option.")
+
+    # Fetch GenomeArk URLs if requested
+    if args.fetch_urls:
+        print("=" * 60)
+        print("Fetching GenomeArk file URLs...")
+        print("=" * 60)
+
+        # Read input table (should have only Species and Assembly columns)
+        infos = pandas.read_csv(args.species, header=None, sep="\t")
+        infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
+
+        # Check that table has exactly 2 columns
+        if len(infos.columns) != 2:
+            raise SystemExit("Error: When using --fetch-urls, the input table must have exactly 2 columns (Species, Assembly).")
+
+        # Fetch URLs for each species
+        list_hifi_urls = []
+        list_hic_type = []
+        list_hic_f_urls = []
+        list_hic_r_urls = []
+
+        for i, row in infos.iterrows():
+            species_name = row['Species']
+            species_id = row['Assembly']
+            print(f"Fetching URLs for {species_id} ({species_name})...")
+
+            try:
+                hifi_reads, hic_type, hic_forward, hic_reverse = get_urls(species_name, species_id)
+                list_hifi_urls.append(hifi_reads)
+                list_hic_type.append(hic_type)
+                list_hic_f_urls.append(hic_forward)
+                list_hic_r_urls.append(hic_reverse)
+                print(f"  ✓ Found {hic_type} Hi-C data")
+            except Exception as e:
+                print(f"  ✗ Error fetching URLs for {species_id}: {e}")
+                raise SystemExit(f"Failed to fetch URLs for {species_id}. Please check species name and assembly ID.")
+
+        # Add URLs to dataframe
+        infos['Hifi_reads'] = list_hifi_urls
+        infos['HiC_Type'] = list_hic_type
+        infos['HiC_forward_reads'] = list_hic_f_urls
+        infos['HiC_reverse_reads'] = list_hic_r_urls
+
+        # Save tracking table
+        output_table = "tracking_runs_" + os.path.basename(args.species)
+        infos.to_csv(output_table, sep='\t', header=True, index=False)
+        print(f"\n✓ GenomeArk URLs saved to: {output_table}")
+        print("=" * 60)
+        print()
+
+        # Update args to use the new tracking table
+        args.species = output_table
 
     path_script=str(pathlib.Path(__file__).parent.resolve())
 
