@@ -1,17 +1,13 @@
 import subprocess
-import sys
 from io import StringIO
 import pandas as pd
 import re
 import argparse
-import pathlib
 import textwrap
-import os
 
-		
 
 def add_species(species_name,species_id,table):
-	hifi_reads,hic_forward,hic_reverse=get_urls(species_name,species_id)
+	hifi_reads,_,hic_forward,hic_reverse=get_urls(species_name,species_id)
 	new_row=pd.DataFrame({'Species': [species_name], 'Assembly': [species_id], 'Hifi_reads': [hifi_reads], 'HiC_forward_reads': [hic_forward], 'HiC_reverse_reads': [hic_reverse]})
 	result=pd.concat([table, new_row], axis=0)
 	return result
@@ -33,12 +29,12 @@ def get_urls(species_name,species_id):
 	res_cmd_hic=subprocess.run(command_hic.split(), capture_output=True, text=True, check=True)
 	list_hifi=res_cmd_hifi.stdout.split('\n')
 	list_hic=res_cmd_hic.stdout.split('\n')
-	list_hifi= [ i for i in res_cmd_hifi.stdout.split('\n') if re.search(r'f(ast)?q.gz$',i) ]
-	list_hic= [ i for i in res_cmd_hic.stdout.split('\n') if re.search(r'f(ast)?q.gz$',i) ]
+	list_hifi= [ i for i in res_cmd_hifi.stdout.split('\n') if re.search(r'\.f(ast)?q(sanger)?\.gz$',i) ]
+	list_hic= [ i for i in res_cmd_hic.stdout.split('\n') if re.search(r'\.f(ast)?q(sanger)?\.gz$',i) ]
 	list_hic_f= [ i for i in list_hic if re.search(r'R1',i) ]
 	list_hic_r= [ i for i in list_hic if re.search(r'R2',i) ]
 	if len(list_hifi)==0:
-		print('Warning: No Hifi reads found for '+species_id+'. Please verify the species name and assßßembly ID.')
+		print('Warning: No Hifi reads found for '+species_id+'. Please verify the species name and assembly ID.')
 		hifi_reads="NA"
 	else:
 		res_table_hifi=pd.read_table(StringIO("\n".join(list_hifi)),sep=r'\s+',header=None)
@@ -75,12 +71,6 @@ def main():
 	group.add_argument('-s','--species',  required=False, help='Species Name')
 	group.add_argument('-a','--assembly', required=False, help='Assembly ID')
 	args = parser.parse_args()
-
-	
-	path_script=str(pathlib.Path(__file__).parent.resolve())
-
-	
-
 
 	if args.add:
 		infos=pd.read_csv(args.table, header=0, sep="\t")

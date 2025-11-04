@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
-
-import json 
-import sys
+import json
 import argparse
 import pandas
 import re
 import pathlib
 import function
 from bioblend.galaxy import GalaxyInstance
-from io import StringIO
 import textwrap
 import os
 import subprocess
@@ -188,41 +185,41 @@ def main():
 
         dic_data_ids['haplotype']=haplotype
 
+        # Fetch taxon ID if using FCS version
+        taxon_id_value = None
         if version_wfl=='fcs':
-            species_name=spec_name.replace("_"," ")
+            species_name_for_ncbi=spec_name.replace("_"," ")
             try:
-                datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name, '--as-json-lines']
+                datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name_for_ncbi, '--as-json-lines']
                 data_type=subprocess.run(datasets_command, capture_output=True, text=True, check=True)
             except:
                 raise SystemExit(f"Error running datasets command. Please check you have the latest version of the NCBI datasets tool installed (https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-start/).")
             taxon_data=json.loads(data_type.stdout)
-            taxon_ID=taxon_data['taxonomy']['tax_id']
+            taxon_id_value=str(taxon_data['taxonomy']['tax_id'])
             taxon_name=taxon_data['taxonomy']['current_scientific_name']['name']
-            dic_data_ids['taxon_ID']=str(taxon_ID)
 
         gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
         list_reports.append(species_path+'reports/report_wf8_'+spec_id+suffix_run+"_"+hap_for_path+'_'+invocation_number+'.pdf')
 
 
         history_id=wf4_inv['history_id']
-        
+
         list_yml.append(yml_file)
         list_res.append(res_file)
         cmd_line="planemo run "+worfklow_path+" "+yml_file+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --galaxy_user_key $MAINKEY --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file+" 2>&1  &"
         commands.append(cmd_line)
         print(cmd_line)
-        with open(sample_job_file, 'r') as sample_file:
-            filedata = sample_file.read()
 
-        pattern = r'\["(.*)"\]'  # Matches the fields to replace
-        to_fill = re.findall(pattern, filedata)
-
-        for i in to_fill:
-            filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
-
-        
-        with open(yml_file, 'w') as yaml_wf:
-            yaml_wf.write(filedata)
+        # Use the prepare_yaml_wf9 function to generate the YAML file
+        function.prepare_yaml_wf9(
+            assembly_id=spec_id,
+            species_name=spec_name,
+            invocation_wf8=wf4_inv,
+            haplotype=haplotype,
+            output_file=yml_file,
+            template_file=sample_job_file,
+            taxon_ID=taxon_id_value
+        )
 
     infos['Wf8_Report_'+hap_for_path]=list_reports
     infos['WF9_job_yml_'+hap_for_path]=list_yml

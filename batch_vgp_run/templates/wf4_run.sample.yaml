@@ -20,7 +20,7 @@ Name for Haplotype 1: Hap1
 Name for Haplotype 2: Hap2
 Species Name:  "["Species Name"]"
 Assembly Name:  "["Assembly Name"]"
-Trim Hi-C reads?: true
+Trim Hi-C reads?: ["trimhic"]
 Hi-C reads:
   class: Collection
   collection_type: list:paired

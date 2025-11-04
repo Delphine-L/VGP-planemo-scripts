@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 
-
 import pandas
 import argparse
 import re
 import pathlib
 import function
-import sys
-from io import StringIO
 import textwrap
 import os
 from bioblend.galaxy import GalaxyInstance

@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
-
-import json 
-import sys
+import json
 import argparse
 import pandas
 import re
 import pathlib
 import function
 from bioblend.galaxy import GalaxyInstance
-from io import StringIO
 import textwrap
 import os
 

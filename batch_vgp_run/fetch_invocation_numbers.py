@@ -1,9 +1,4 @@
-
-import os
-import requests
-import zipfile
 import json
-import shutil
 import argparse
 import textwrap
 from bioblend.galaxy import GalaxyInstance

@@ -1,0 +1,15 @@
+# Include important documentation
+include README.md
+include LICENSE
+include requirements.txt
+include installs.sh
+
+# Include template files
+recursive-include batch_vgp_run/templates *.yaml
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude *.ipynb
+global-exclude .ipynb_checkpoints

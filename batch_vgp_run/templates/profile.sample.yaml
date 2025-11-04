@@ -1,0 +1,11 @@
+Galaxy_instance: https://vgp.usegalaxy.org
+Galaxy_key: your_galaxy_api_key_here
+Workflow_1: your_workflow_id_or_version_here
+Workflow_4: your_workflow_id_or_version_here
+Workflow_8: your_workflow_id_or_version_here
+Workflow_9: your_workflow_id_or_version_here
+Workflow_0: your_workflow_id_or_version_here
+
+# Pre-Curation Workflow (optional - generates Pretext maps for manual curation)
+# Uncomment to enable pre-curation after Workflow 9
+# Workflow_PreCuration: your_workflow_id_or_version_here  # PretextMap-Generation
