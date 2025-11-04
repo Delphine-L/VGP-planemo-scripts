@@ -9,3 +9,8 @@ Workflow_0: your_workflow_id_or_version_here
 # Pre-Curation Workflow (optional - generates Pretext maps for manual curation)
 # Uncomment to enable pre-curation after Workflow 9
 # Workflow_PreCuration: your_workflow_id_or_version_here  # PretextMap-Generation
+
+# Polling intervals for workflow completion (optional - defaults shown in minutes)
+# How often to check if workflows have completed before launching the next workflow
+# poll_interval_wf1: 30     # Workflow 1 polling interval (default: 30 minutes)
+# poll_interval_other: 60   # Other workflows polling interval (default: 60 minutes)

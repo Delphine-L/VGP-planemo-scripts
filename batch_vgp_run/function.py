@@ -330,14 +330,15 @@ def fetch_invocation_from_history(gi, history_id, workflow_name, haplotype=None,
         print(f"Warning: Error searching history for {workflow_name}: {e}")
         return None
 
-def wait_for_invocations(gi, invocation_ids, assembly_id, poll_interval=60, timeout=86400):
+def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, poll_interval=60, timeout=86400):
     """
     Wait for Galaxy invocations to complete, polling at regular intervals.
 
     Args:
         gi (GalaxyInstance): Galaxy instance object
-        invocation_ids (list): List of invocation IDs to wait for
+        invocation_ids (list): List of invocation IDs to wait for (or dict {inv_id: description})
         assembly_id (str): Assembly ID for logging
+        workflow_name (str, optional): Workflow name for logging
         poll_interval (int): Seconds between status checks (default: 60)
         timeout (int): Maximum seconds to wait (default: 86400 = 24 hours)
 
@@ -345,16 +346,34 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, poll_interval=60, time
         dict: Status of each invocation {invocation_id: status}
     """
     start_time = time.time()
+
+    # Support both list and dict formats
+    if isinstance(invocation_ids, dict):
+        inv_dict = invocation_ids
+        invocation_ids = list(inv_dict.keys())
+    else:
+        inv_dict = {inv_id: workflow_name or f"invocation {inv_id}" for inv_id in invocation_ids}
+
     statuses = {inv_id: 'waiting' for inv_id in invocation_ids}
 
-    print(f"Waiting for {len(invocation_ids)} invocation(s) to complete for {assembly_id}...")
-    print(f"Polling every {poll_interval} seconds. Press Ctrl+C to interrupt and resume later with --resume.\n")
+    wf_info = f" ({workflow_name})" if workflow_name else ""
+    # Format poll interval in human-readable form
+    if poll_interval >= 60:
+        poll_display = f"{poll_interval // 60} minutes"
+    else:
+        poll_display = f"{poll_interval} seconds"
+
+    print(f"Waiting for {len(invocation_ids)} invocation(s) to complete for {assembly_id}{wf_info}...")
+    print(f"Polling every {poll_display}. Press Ctrl+C to interrupt and resume later with --resume.\n")
 
     poll_count = 0
     while True:
         poll_count += 1
         elapsed = int(time.time() - start_time)
-        print(f"[Poll #{poll_count}, elapsed: {elapsed//60}m {elapsed%60}s] Checking invocation status...")
+        # Get current timestamp
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[Poll #{poll_count}, {current_time}, elapsed: {elapsed//60}m {elapsed%60}s] Checking invocation status...")
 
         all_done = True
         for inv_id in invocation_ids:
@@ -363,24 +382,46 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, poll_interval=60, time
                     summary = gi.invocations.get_invocation_summary(str(inv_id))
                     status = summary.get('populated_state', 'unknown')
 
+                    # Get job completion statistics
+                    jobs_total = 0
+                    jobs_complete = 0
+                    jobs_ok = 0
+                    jobs_error = 0
+                    if 'states' in summary:
+                        states = summary['states']
+                        # Total jobs = sum of all job states
+                        jobs_total = sum(states.values()) if states else 0
+                        # Completed jobs = ok + error (terminal states)
+                        jobs_ok = states.get('ok', 0)
+                        jobs_error = states.get('error', 0)
+                        jobs_complete = jobs_ok + jobs_error
+
+                    job_info = f" ({jobs_complete}/{jobs_total} jobs)" if jobs_total > 0 else ""
+
+                    # Add warning for failed jobs
+                    if jobs_error > 0:
+                        job_info += f" ⚠ {jobs_error} failed"
+
                     # Only print if status changed
                     if status != statuses[inv_id]:
                         statuses[inv_id] = status
+                        inv_label = inv_dict.get(inv_id, inv_id)
                         if status == 'ok':
-                            print(f"  ✓ Invocation {inv_id}: completed successfully")
+                            print(f"  ✓ {inv_label} ({assembly_id}): completed successfully{job_info}")
                         elif status in ['error', 'failed']:
-                            print(f"  ✗ Invocation {inv_id}: {status}")
+                            print(f"  ✗ {inv_label} ({assembly_id}): {status}{job_info}")
                         else:
-                            print(f"  → Invocation {inv_id}: {status}")
+                            print(f"  → {inv_label} ({assembly_id}): {status}{job_info}")
 
                     if status not in ['ok', 'error', 'failed']:
                         all_done = False
                 except Exception as e:
-                    print(f"  Warning: Could not check status for invocation {inv_id}: {e}")
+                    inv_label = inv_dict.get(inv_id, inv_id)
+                    print(f"  Warning: Could not check status for {inv_label}: {e}")
                     all_done = False
 
         if all_done:
-            print(f"\n✓ All invocations completed for {assembly_id}\n")
+            print(f"\n✓ All invocations completed for {assembly_id}{wf_info}\n")
             break
 
         # Check timeout
@@ -389,10 +430,42 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, poll_interval=60, time
             break
 
         # Wait before next check
-        print(f"  Waiting {poll_interval} seconds before next check...")
+        print(f"  Waiting {poll_display} before next check...")
         time.sleep(poll_interval)
 
     return statuses
+
+def mark_invocation_as_failed(assembly_id, list_metadata, workflow_key, invocation_id, profile_data, suffix_run):
+    """
+    Mark an invocation as failed by moving it from invocations to failed_invocations.
+
+    Args:
+        assembly_id (str): Assembly ID
+        list_metadata (dict): Metadata dictionary
+        workflow_key (str): Workflow key (e.g., "Workflow_1", "Workflow_8_hap1")
+        invocation_id (str): Invocation ID that failed
+        profile_data (dict): Profile configuration
+        suffix_run (str): Suffix for the run
+    """
+    # Initialize failed_invocations dict if it doesn't exist
+    if 'failed_invocations' not in list_metadata[assembly_id]:
+        list_metadata[assembly_id]['failed_invocations'] = {}
+
+    # Initialize workflow list in failed_invocations if it doesn't exist
+    if workflow_key not in list_metadata[assembly_id]['failed_invocations']:
+        list_metadata[assembly_id]['failed_invocations'][workflow_key] = []
+
+    # Add to failed list if not already there
+    if invocation_id not in list_metadata[assembly_id]['failed_invocations'][workflow_key]:
+        list_metadata[assembly_id]['failed_invocations'][workflow_key].append(invocation_id)
+        print(f"⚠ Invocation {invocation_id} for {workflow_key} marked as failed")
+
+    # Remove from regular invocations (reset to 'NA' so it can be retried)
+    if workflow_key in list_metadata[assembly_id]['invocations']:
+        list_metadata[assembly_id]['invocations'][workflow_key] = 'NA'
+
+    # Save metadata
+    save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
 def save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run):
     """
@@ -549,13 +622,17 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     if not wf1_complete:
         print(f"Workflow 1 for {assembly_id} is still running (status: {wf1_status}). Waiting for completion before launching Workflow 4.")
         print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        # Wait for WF1 to complete (poll every 10 minutes)
+        # Wait for WF1 to complete (poll every 30 minutes by default, configurable in profile)
         print(f"Starting automatic polling for Workflow 1 completion...")
-        wait_for_invocations(gi, [invocation_wf1], assembly_id, poll_interval=600)
+        poll_wf1 = profile_data.get('poll_interval_wf1', 30) * 60  # Convert minutes to seconds
+        wait_for_invocations(gi, [invocation_wf1], assembly_id, workflow_name="Workflow 1", poll_interval=poll_wf1)
         # Re-check status after waiting
         wf1_complete, wf1_status = check_invocation_complete(gi, invocation_wf1)
         if not wf1_complete:
             print(f"Workflow 1 did not complete successfully. Current status: {wf1_status}")
+            # Mark as failed if status is error or failed
+            if wf1_status in ['error', 'failed']:
+                mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_1", invocation_wf1, profile_data, suffix_run)
             return {assembly_id: list_metadata[assembly_id]}
 
     print(f"Workflow 1 for {assembly_id} is complete (status: {wf1_status}). Proceeding with Workflow 4.\n")
@@ -705,13 +782,17 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     if not wf4_complete:
         print(f"Workflow 4 for {assembly_id} is still running (status: {wf4_status}). Waiting for completion before launching Workflow 8.")
         print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        # Wait for WF4 to complete (poll every 30 minutes)
+        # Wait for WF4 to complete (poll every 60 minutes by default, configurable in profile)
         print(f"Starting automatic polling for Workflow 4 completion...")
-        wait_for_invocations(gi, [invocation_wf4], assembly_id, poll_interval=1800)
+        poll_other = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
+        wait_for_invocations(gi, [invocation_wf4], assembly_id, workflow_name="Workflow 4", poll_interval=poll_other)
         # Re-check status after waiting
         wf4_complete, wf4_status = check_invocation_complete(gi, invocation_wf4)
         if not wf4_complete:
             print(f"Workflow 4 did not complete successfully. Current status: {wf4_status}")
+            # Mark as failed if status is error or failed
+            if wf4_status in ['error', 'failed']:
+                mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
             return {assembly_id: list_metadata[assembly_id]}
 
     print(f"\n=== Workflow 4 complete (status: {wf4_status}). Preparing Workflow 8 for both haplotypes ===\n")
@@ -819,9 +900,12 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     if not all_wf8_complete:
         print(f"Workflow 8 is still running for one or more haplotypes. Waiting for completion before launching Workflow 9.")
         print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        # Wait for all WF8 invocations to complete (poll every 30 minutes)
+        # Wait for all WF8 invocations to complete (poll every 60 minutes by default, configurable in profile)
         print(f"Starting automatic polling for Workflow 8 completion (both haplotypes)...")
-        wait_for_invocations(gi, list(wf8_invocations.values()), assembly_id, poll_interval=1800)
+        # Create dict mapping invocation IDs to their labels
+        wf8_inv_dict = {inv_id: f"Workflow 8 {hap_mapping[hap_code]}" for hap_code, inv_id in wf8_invocations.items()}
+        poll_other = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
+        wait_for_invocations(gi, wf8_inv_dict, assembly_id, workflow_name="Workflow 8", poll_interval=poll_other)
         # Re-check status after waiting
         all_wf8_complete = True
         for hap_code, inv_id in wf8_invocations.items():
@@ -829,6 +913,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             if not is_complete:
                 all_wf8_complete = False
                 print(f"Workflow 8 ({hap_mapping[hap_code]}) did not complete successfully. Status: {status}")
+                # Mark as failed if status is error or failed
+                if status in ['error', 'failed']:
+                    wf8_key = f"Workflow_8_{hap_code}"
+                    mark_invocation_as_failed(assembly_id, list_metadata, wf8_key, inv_id, profile_data, suffix_run)
         if not all_wf8_complete:
             return {assembly_id: list_metadata[assembly_id]}
 

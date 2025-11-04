@@ -127,6 +127,7 @@ python batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> --add -
 ### Features
 
 - **Fully automated**: Runs all workflows in the correct dependency order
+- **Automatic polling**: Continuously monitors workflow completion status and automatically launches the next workflow (configurable polling intervals)
 - **Automatic URL fetching**: Optional `--fetch-urls` flag to automatically fetch GenomeArk file paths
 - **Parallel processing**: Process multiple species concurrently (default: 3 species)
 - **Smart resuming**: Automatically recovers invocation data from Galaxy history if JSON files are missing
@@ -170,6 +171,11 @@ Workflow_9: yza567bcd890  # Assembly-decontamination-VGP9
 
 # Optional: Workflow 9 decontamination method
 wf9_version: fcs  # Use 'fcs' (default, NCBI FCS-GX) or 'legacy' (Kraken2)
+
+# Optional: Polling intervals for workflow completion (in minutes)
+# How often to check if workflows have completed before launching the next workflow
+# poll_interval_wf1: 30     # Workflow 1 polling interval (default: 30 minutes)
+# poll_interval_other: 60   # Other workflows polling interval (default: 60 minutes)
 ````
 
 **Note**: When using `wf9_version: fcs`, taxon IDs are automatically queried from NCBI dataset for each species. The `ncbi dataset` command-line tool must be installed (see https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/).

@@ -144,6 +144,8 @@ def main():
         # Check for failed invocations and warn user
         print("\nChecking status of existing invocations...")
         failed_invocations = []
+
+        # Check currently active invocations
         for species_id in list_metadata.keys():
             if 'invocations' in list_metadata[species_id]:
                 for workflow_key, invocation_id in list_metadata[species_id]['invocations'].items():
@@ -161,6 +163,18 @@ def main():
                         except Exception as e:
                             print(f"Warning: Could not check invocation {invocation_id} for {species_id} {workflow_key}: {e}")
 
+            # Also check the failed_invocations structure
+            if 'failed_invocations' in list_metadata[species_id]:
+                for workflow_key, inv_list in list_metadata[species_id]['failed_invocations'].items():
+                    for invocation_id in inv_list:
+                        # Add to failed list (these are already known to be failed)
+                        failed_invocations.append({
+                            'species': species_id,
+                            'workflow': workflow_key,
+                            'invocation': invocation_id,
+                            'state': 'failed (marked)'
+                        })
+
         if failed_invocations:
             print(f"\n{'='*60}")
             if args.retry_failed:
@@ -175,7 +189,17 @@ def main():
             if args.retry_failed:
                 print("Resetting failed invocations to allow retry...\n")
                 for failed in failed_invocations:
+                    # Reset invocation to NA so it can be retried
                     list_metadata[failed['species']]['invocations'][failed['workflow']] = 'NA'
+                    # Remove from failed_invocations list
+                    if 'failed_invocations' in list_metadata[failed['species']]:
+                        if failed['workflow'] in list_metadata[failed['species']]['failed_invocations']:
+                            inv_list = list_metadata[failed['species']]['failed_invocations'][failed['workflow']]
+                            if failed['invocation'] in inv_list:
+                                inv_list.remove(failed['invocation'])
+                            # Clean up empty lists
+                            if not inv_list:
+                                del list_metadata[failed['species']]['failed_invocations'][failed['workflow']]
                     print(f"  Reset {failed['species']} {failed['workflow']}")
                 print("\nFailed workflows will be re-launched during this run.\n")
             else:
@@ -340,6 +364,7 @@ def main():
             list_metadata[spec_id]["dataset_ids"]={}
             list_metadata[spec_id]["history_id"]='NA'
             list_metadata[spec_id]["taxon_id"]='NA'
+            list_metadata[spec_id]["failed_invocations"]={}
 
             for wkfl in dico_workflows.keys():
                 list_metadata[spec_id]["job_files"][wkfl]=species_path+'job_files/'+spec_id+suffix_run+'_'+wkfl+'.yml'
