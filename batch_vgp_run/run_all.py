@@ -387,7 +387,8 @@ def main():
                 profile_data,
                 dico_workflows,
                 results_lock,
-                results_status
+                results_status,
+                args.resume  # Pass resume flag to enable/disable history invocation search
             )
             for species_id in list_metadata.keys()
         ]

@@ -394,7 +394,7 @@ def save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run):
     except Exception as e:
         print(f"Warning: Could not save species metadata for {assembly_id}: {e}")
 
-def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow_data):
+def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow_data, is_resume=False):
     """
     Run VGP workflows in sequence for a species.
     Workflow 4 generates both hap1 and hap2, so workflows 8 and 9 run on both haplotypes in parallel.
@@ -406,6 +406,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         list_metadata (dict): Metadata dictionary
         profile_data (dict): Profile configuration
         workflow_data (dict): Workflow paths and info
+        is_resume (bool): Whether this is a resume run (enables history invocation search)
     """
     command_lines={}
     galaxy_instance=profile_data['Galaxy_instance']
@@ -426,12 +427,19 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     # Only built when we need to search for missing invocations
     history_invocation_cache = None
 
+    # Build command lines - use history_id if available (resume), otherwise use history_name
+    command_lines = {}
     for key in workflow_data.keys():
         workflow_path=workflow_data[key]['Path']
         job_yaml=list_metadata[assembly_id]["job_files"][key]
         log_file=list_metadata[assembly_id]["planemo_logs"][key]
         res_file=list_metadata[assembly_id]["invocation_jsons"][key]
-        command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_name "+history_name+" --no_wait --test_output_json "+res_file+" > "+log_file
+
+        # Use history_id if we have it (from resume), otherwise use history_name
+        if history_id:
+            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file
+        else:
+            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_name "+history_name+" --no_wait --test_output_json "+res_file+" > "+log_file
 
     # === WORKFLOW 1 ===
     invocation_wf1 = None
@@ -449,9 +457,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         invocation_wf1 = list_metadata[assembly_id]["invocations"]["Workflow_1"]
         print(f"Workflow 1 for {assembly_id} ({species_name}) invocation found in metadata.\n")
 
-    # Try to fetch from history
+    # Try to fetch from history (only during resume)
     else:
-        if history_id:
+        if is_resume and history_id:
             print(f"Searching history for Workflow 1 invocation for {assembly_id}...")
             invocation_wf1 = fetch_invocation_from_history(gi, history_id, "kmer-profiling-hifi-VGP1")
             if invocation_wf1:
@@ -477,7 +485,21 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         return {assembly_id: list_metadata[assembly_id]}
 
     # Update history_id from invocation (most reliable method)
-    history_id = get_or_find_history_id(gi, list_metadata, assembly_id, invocation_wf1)
+    new_history_id = get_or_find_history_id(gi, list_metadata, assembly_id, invocation_wf1)
+
+    # Update all command lines to use history_id if we just got it (wasn't available before)
+    if new_history_id and not history_id:
+        print(f"Updating commands to use history_id: {new_history_id}")
+        history_id = new_history_id
+        for key in workflow_data.keys():
+            if key != "Workflow_1":  # WF1 already launched, don't update its command
+                workflow_path = workflow_data[key]['Path']
+                job_yaml = list_metadata[assembly_id]["job_files"][key]
+                log_file = list_metadata[assembly_id]["planemo_logs"][key]
+                res_file = list_metadata[assembly_id]["invocation_jsons"][key]
+                command_lines[key] = "planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file
+    elif new_history_id:
+        history_id = new_history_id
 
     # Store dataset IDs for Workflow 1
     try:
@@ -516,9 +538,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         invocation_wf4 = list_metadata[assembly_id]["invocations"]["Workflow_4"]
         print(f"Workflow 4 for {assembly_id} invocation found in metadata.\n")
 
-    # Try to fetch from history (prerequisite WF1 exists)
+    # Try to fetch from history (only during resume, prerequisite WF1 exists)
     else:
-        if history_id:
+        if is_resume and history_id:
             # Build invocation cache if not already built (first time we need it)
             if history_invocation_cache is None:
                 print(f"Building invocation cache for {assembly_id}...")
@@ -585,9 +607,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         invocation_wf0 = list_metadata[assembly_id]["invocations"]["Workflow_0"]
         print(f"Workflow 0 for {assembly_id} invocation found in metadata.\n")
 
-    # Try to fetch from history (prerequisite WF4 exists)
+    # Try to fetch from history (only during resume, prerequisite WF4 exists)
     else:
-        if history_id:
+        if is_resume and history_id:
             # Build invocation cache if not already built
             if history_invocation_cache is None:
                 print(f"Building invocation cache for {assembly_id}...")
@@ -664,9 +686,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             invocation_wf8 = list_metadata[assembly_id]["invocations"][wf8_key]
             print(f"Workflow 8 ({haplotype_name}) for {assembly_id} invocation found in metadata.\n")
 
-        # Try to fetch from history (prerequisite WF4 exists)
+        # Try to fetch from history (only during resume, prerequisite WF4 exists)
         else:
-            if history_id:
+            if is_resume and history_id:
                 # Build invocation cache if not already built
                 if history_invocation_cache is None:
                     print(f"Building invocation cache for {assembly_id}...")
@@ -776,9 +798,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             invocation_wf9 = list_metadata[assembly_id]["invocations"][wf9_key]
             print(f"Workflow 9 ({haplotype_name}) for {assembly_id} invocation found in metadata.\n")
 
-        # Try to fetch from history (prerequisite WF8 for this haplotype exists)
+        # Try to fetch from history (only during resume, prerequisite WF8 for this haplotype exists)
         else:
-            if history_id and hap_code in wf8_invocations:
+            if is_resume and history_id and hap_code in wf8_invocations:
                 # Build invocation cache if not already built
                 if history_invocation_cache is None:
                     print(f"Building invocation cache for {assembly_id}...")
@@ -957,7 +979,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     return {assembly_id: list_metadata[assembly_id]}
 
-def process_species_wrapper(species_id, list_metadata, profile_data, dico_workflows, results_lock, results_status):
+def process_species_wrapper(species_id, list_metadata, profile_data, dico_workflows, results_lock, results_status, is_resume=False):
     """
     Wrapper function to process a species and handle errors.
     Thread-safe function for parallel processing.
@@ -970,6 +992,7 @@ def process_species_wrapper(species_id, list_metadata, profile_data, dico_workfl
         dico_workflows (dict): Workflow paths and info
         results_lock (threading.Lock): Lock for thread-safe updates
         results_status (dict): Results status dictionary (shared across threads)
+        is_resume (bool): Whether this is a resume run (enables history invocation search)
 
     Returns:
         tuple: (species_id, status, error_message)
@@ -982,7 +1005,7 @@ def process_species_wrapper(species_id, list_metadata, profile_data, dico_workfl
         # Create Galaxy instance for this thread/process
         gi = GalaxyInstance(profile_data['Galaxy_instance'], profile_data['Galaxy_key'])
 
-        result = run_species_workflows(species_id, gi, list_metadata, profile_data, dico_workflows)
+        result = run_species_workflows(species_id, gi, list_metadata, profile_data, dico_workflows, is_resume)
 
         # Thread-safe update of shared metadata
         with results_lock:
