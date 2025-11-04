@@ -56,8 +56,9 @@ def get_urls(species_name,species_id):
 
 		# Verify pairing by comparing base filenames (handles R1/R2, _1/_2, .1/.2, etc.)
 		# Replace common forward/reverse indicators with a placeholder
-		forward_bases = [re.sub(r'[_\.]?[Rr]?1[_\.]', '_PAIR.', f) for f in res_table_hic_f[3]]
-		reverse_bases = [re.sub(r'[_\.]?[Rr]?2[_\.]', '_PAIR.', f) for f in res_table_hic_r[3]]
+		# Pattern captures separators and preserves them to avoid matching digits elsewhere
+		forward_bases = [re.sub(r'([_\.])([Rr])?1([_\.])', r'\1PAIR\3', f) for f in res_table_hic_f[3]]
+		reverse_bases = [re.sub(r'([_\.])([Rr])?2([_\.])', r'\1PAIR\3', f) for f in res_table_hic_r[3]]
 		if forward_bases != reverse_bases:
 			print(f"Warning: Hi-C read pairs for {species_id} may not be properly matched. Please verify filenames:")
 			for f, r in zip(res_table_hic_f[3], res_table_hic_r[3]):

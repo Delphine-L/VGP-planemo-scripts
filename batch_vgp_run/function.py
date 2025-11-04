@@ -332,7 +332,7 @@ def fetch_invocation_from_history(gi, history_id, workflow_name, haplotype=None,
 
 def wait_for_invocations(gi, invocation_ids, assembly_id, poll_interval=60, timeout=86400):
     """
-    Wait for Galaxy invocations to complete.
+    Wait for Galaxy invocations to complete, polling at regular intervals.
 
     Args:
         gi (GalaxyInstance): Galaxy instance object
@@ -348,36 +348,48 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, poll_interval=60, time
     statuses = {inv_id: 'waiting' for inv_id in invocation_ids}
 
     print(f"Waiting for {len(invocation_ids)} invocation(s) to complete for {assembly_id}...")
+    print(f"Polling every {poll_interval} seconds. Press Ctrl+C to interrupt and resume later with --resume.\n")
 
+    poll_count = 0
     while True:
+        poll_count += 1
+        elapsed = int(time.time() - start_time)
+        print(f"[Poll #{poll_count}, elapsed: {elapsed//60}m {elapsed%60}s] Checking invocation status...")
+
         all_done = True
         for inv_id in invocation_ids:
             if statuses[inv_id] not in ['ok', 'error', 'failed']:
                 try:
                     summary = gi.invocations.get_invocation_summary(str(inv_id))
                     status = summary.get('populated_state', 'unknown')
-                    statuses[inv_id] = status
+
+                    # Only print if status changed
+                    if status != statuses[inv_id]:
+                        statuses[inv_id] = status
+                        if status == 'ok':
+                            print(f"  ✓ Invocation {inv_id}: completed successfully")
+                        elif status in ['error', 'failed']:
+                            print(f"  ✗ Invocation {inv_id}: {status}")
+                        else:
+                            print(f"  → Invocation {inv_id}: {status}")
 
                     if status not in ['ok', 'error', 'failed']:
                         all_done = False
-                    elif status == 'ok':
-                        print(f"  Invocation {inv_id}: completed successfully")
-                    else:
-                        print(f"  Invocation {inv_id}: {status}")
                 except Exception as e:
                     print(f"  Warning: Could not check status for invocation {inv_id}: {e}")
                     all_done = False
 
         if all_done:
-            print(f"All invocations completed for {assembly_id}")
+            print(f"\n✓ All invocations completed for {assembly_id}\n")
             break
 
         # Check timeout
         if time.time() - start_time > timeout:
-            print(f"Warning: Timeout reached after {timeout} seconds")
+            print(f"\nWarning: Timeout reached after {timeout} seconds ({timeout//3600} hours)")
             break
 
         # Wait before next check
+        print(f"  Waiting {poll_interval} seconds before next check...")
         time.sleep(poll_interval)
 
     return statuses
@@ -499,7 +511,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     # If we STILL don't have invocation (workflow just launched), can't proceed
     if not invocation_wf1 or invocation_wf1 == 'NA':
-        print(f"Workflow 1 just launched for {assembly_id}. Run this script again later to continue.\n")
+        print(f"Workflow 1 just launched for {assembly_id}. Waiting for invocation data to be written.")
+        print(f"You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
     # Update history_id from invocation (most reliable method)
@@ -534,9 +547,16 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     wf1_complete, wf1_status = check_invocation_complete(gi, invocation_wf1)
 
     if not wf1_complete:
-        print(f"Workflow 1 for {assembly_id} is not yet complete (status: {wf1_status}). Skipping Workflow 4 for now.")
-        print(f"Run this script again later to continue the workflow pipeline.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        print(f"Workflow 1 for {assembly_id} is still running (status: {wf1_status}). Waiting for completion before launching Workflow 4.")
+        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
+        # Wait for WF1 to complete (poll every 10 minutes)
+        print(f"Starting automatic polling for Workflow 1 completion...")
+        wait_for_invocations(gi, [invocation_wf1], assembly_id, poll_interval=600)
+        # Re-check status after waiting
+        wf1_complete, wf1_status = check_invocation_complete(gi, invocation_wf1)
+        if not wf1_complete:
+            print(f"Workflow 1 did not complete successfully. Current status: {wf1_status}")
+            return {assembly_id: list_metadata[assembly_id]}
 
     print(f"Workflow 1 for {assembly_id} is complete (status: {wf1_status}). Proceeding with Workflow 4.\n")
 
@@ -589,7 +609,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     # If we STILL don't have invocation, can't proceed
     if not invocation_wf4 or invocation_wf4 == 'NA':
-        print(f"Workflow 4 just launched for {assembly_id}. Run this script again later.\n")
+        print(f"Workflow 4 just launched for {assembly_id}. Waiting for invocation data to be written.")
+        print(f"You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
     # Get workflow 4 invocation object for preparing downstream workflows
@@ -597,7 +618,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         wf4_inv=gi.invocations.show_invocation(str(invocation_wf4))
     except Exception as e:
         print(f"Warning: Could not get Workflow 4 invocation details: {e}")
-        print(f"Workflow 4 may still be initializing. Run this script again later.\n")
+        print(f"Workflow 4 may still be initializing. Waiting for Galaxy to register the invocation.")
+        print(f"You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
     # Store dataset IDs for Workflow 4
@@ -681,9 +703,16 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     wf4_complete, wf4_status = check_invocation_complete(gi, invocation_wf4)
 
     if not wf4_complete:
-        print(f"Workflow 4 for {assembly_id} is not yet complete (status: {wf4_status}). Skipping Workflow 8 for now.")
-        print(f"Run this script again later to continue the workflow pipeline.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        print(f"Workflow 4 for {assembly_id} is still running (status: {wf4_status}). Waiting for completion before launching Workflow 8.")
+        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
+        # Wait for WF4 to complete (poll every 30 minutes)
+        print(f"Starting automatic polling for Workflow 4 completion...")
+        wait_for_invocations(gi, [invocation_wf4], assembly_id, poll_interval=1800)
+        # Re-check status after waiting
+        wf4_complete, wf4_status = check_invocation_complete(gi, invocation_wf4)
+        if not wf4_complete:
+            print(f"Workflow 4 did not complete successfully. Current status: {wf4_status}")
+            return {assembly_id: list_metadata[assembly_id]}
 
     print(f"\n=== Workflow 4 complete (status: {wf4_status}). Preparing Workflow 8 for both haplotypes ===\n")
 
@@ -773,8 +802,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     # === WORKFLOW 9 (Both Haplotypes in Parallel - after workflow 8 completes) ===
     # Check if both Workflow 8 invocations exist
     if not wf8_invocations:
-        print(f"No Workflow 8 invocations found for {assembly_id}. Skipping Workflow 9.")
-        print(f"Run this script again after Workflow 8 has been launched.\n")
+        print(f"No Workflow 8 invocations found for {assembly_id}. Waiting for Workflow 8 to be launched.")
+        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
     # Check if all Workflow 8 invocations are complete
@@ -788,9 +817,20 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             print(f"Workflow 8 ({hap_mapping[hap_code]}) for {assembly_id} is not yet complete (status: {status}).")
 
     if not all_wf8_complete:
-        print(f"Workflow 8 is not yet complete for all haplotypes. Skipping Workflow 9 for now.")
-        print(f"Run this script again later to continue the workflow pipeline.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        print(f"Workflow 8 is still running for one or more haplotypes. Waiting for completion before launching Workflow 9.")
+        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
+        # Wait for all WF8 invocations to complete (poll every 30 minutes)
+        print(f"Starting automatic polling for Workflow 8 completion (both haplotypes)...")
+        wait_for_invocations(gi, list(wf8_invocations.values()), assembly_id, poll_interval=1800)
+        # Re-check status after waiting
+        all_wf8_complete = True
+        for hap_code, inv_id in wf8_invocations.items():
+            is_complete, status = check_invocation_complete(gi, inv_id)
+            if not is_complete:
+                all_wf8_complete = False
+                print(f"Workflow 8 ({hap_mapping[hap_code]}) did not complete successfully. Status: {status}")
+        if not all_wf8_complete:
+            return {assembly_id: list_metadata[assembly_id]}
 
     print(f"\n=== All Workflow 8 invocations complete. Preparing Workflow 9 for both haplotypes ===\n")
 
