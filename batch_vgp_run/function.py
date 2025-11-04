@@ -154,7 +154,7 @@ def check_invocation_complete(gi, invocation_id):
         print(f"  Warning: Could not check status for invocation {invocation_id}: {e}")
         return (False, 'error')
 
-def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None):
+def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, is_resume=False):
     """
     Get history_id from metadata, from an invocation, or search for it.
     Stores found history_id in metadata for reuse across all workflow searches.
@@ -162,13 +162,14 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None):
     Priority:
     1. Return cached history_id if exists in metadata
     2. Get from invocation_id if provided (most reliable)
-    3. Search by history name (fallback, may not be accurate if duplicates exist)
+    3. Search by history name (only during resume, may not be accurate if duplicates exist)
 
     Args:
         gi (GalaxyInstance): Galaxy instance object
         list_metadata (dict): Metadata dictionary
         assembly_id (str): Assembly ID
         invocation_id (str, optional): Invocation ID to get history from
+        is_resume (bool): Whether this is a resume run (enables history name search)
 
     Returns:
         str: history_id or None if not found
@@ -189,7 +190,10 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None):
         except Exception as e:
             print(f"Warning: Could not get history from invocation {invocation_id}: {e}")
 
-    # Fallback: Search by history name (may not be accurate if duplicates)
+    # Fallback: Search by history name (only during resume, may not be accurate if duplicates)
+    if not is_resume:
+        return None
+
     history_name = list_metadata[assembly_id]['History_name']
     try:
         history_list = gi.histories._get_histories(name=history_name)
@@ -416,12 +420,12 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     suffix_run=profile_data['Suffix']
 
     # Try to get history_id (will be updated once we have an invocation)
-    # Initially try without invocation_id (may search by name)
-    history_id = get_or_find_history_id(gi, list_metadata, assembly_id)
+    # Only search by name during resume
+    history_id = get_or_find_history_id(gi, list_metadata, assembly_id, is_resume=is_resume)
     if history_id:
         print(f"Using Galaxy history: {history_id}")
-    else:
-        print(f"Note: No history found yet for {assembly_id}. Will search after getting invocation.")
+    elif is_resume:
+        print(f"Note: No history found yet for {assembly_id}. Will retrieve from first invocation.")
 
     # Cache for history invocations (lazy initialization to minimize API calls)
     # Only built when we need to search for missing invocations
@@ -485,7 +489,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         return {assembly_id: list_metadata[assembly_id]}
 
     # Update history_id from invocation (most reliable method)
-    new_history_id = get_or_find_history_id(gi, list_metadata, assembly_id, invocation_wf1)
+    new_history_id = get_or_find_history_id(gi, list_metadata, assembly_id, invocation_wf1, is_resume)
 
     # Update all command lines to use history_id if we just got it (wasn't available before)
     if new_history_id and not history_id:
