@@ -160,8 +160,8 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, i
     Stores found history_id in metadata for reuse across all workflow searches.
 
     Priority:
-    1. Get from invocation_id if provided (most reliable)
-    2. Return cached history_id if exists in metadata (only during resume)
+    1. Return cached history_id if exists in metadata (works for both new and resume runs)
+    2. Get from invocation_id if provided (requires API call)
     3. Search by history name (only during resume, may not be accurate if duplicates exist)
 
     Args:
@@ -174,7 +174,11 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, i
     Returns:
         str: history_id or None if not found
     """
-    # Get from invocation if provided (most reliable method - works for both new and resume runs)
+    # Check cached first (works for both new and resume runs - avoids API calls)
+    if 'history_id' in list_metadata[assembly_id] and list_metadata[assembly_id]['history_id'] != 'NA':
+        return list_metadata[assembly_id]['history_id']
+
+    # Get from invocation if provided (requires API call - only if not cached)
     if invocation_id:
         try:
             invocation_details = gi.invocations.show_invocation(str(invocation_id))
@@ -189,10 +193,6 @@ def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, i
     # For new runs (not resume), don't search for history - it will be created by WF1
     if not is_resume:
         return None
-
-    # Return cached if exists (only during resume)
-    if 'history_id' in list_metadata[assembly_id] and list_metadata[assembly_id]['history_id'] != 'NA':
-        return list_metadata[assembly_id]['history_id']
 
     # Fallback: Search by history name (only during resume, may not be accurate if duplicates)
 
@@ -422,8 +422,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     suffix_run=profile_data['Suffix']
 
     # Try to get history_id (only during resume - for new runs it will be created by WF1)
-    history_id = get_or_find_history_id(gi, list_metadata, assembly_id, is_resume=is_resume)
+    history_id = None
     if is_resume:
+        history_id = get_or_find_history_id(gi, list_metadata, assembly_id, is_resume=is_resume)
         if history_id:
             print(f"Using Galaxy history: {history_id}")
         else:
@@ -456,6 +457,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         reswf1 = json.load(wf1json)
         invocation_wf1 = reswf1["tests"][0]["data"]['invocation_details']['details']['invocation_id']
         list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
+        # Also extract history_id from JSON file to avoid unnecessary API calls
+        if 'history_id' in reswf1["tests"][0]["data"]['invocation_details']:
+            history_id = reswf1["tests"][0]["data"]['invocation_details']['history_id']
+            list_metadata[assembly_id]['history_id'] = history_id
         print(f"Workflow 1 for {assembly_id} ({species_name}) result file found.\n")
 
     # Try to get from metadata
@@ -474,7 +479,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     # If still not found, launch the workflow
     if not invocation_wf1 or invocation_wf1 == 'NA':
-        print(f"No previous run found for Workflow 1. Launching...")
+        if is_resume:
+            print(f"No previous run found for Workflow 1. Launching...")
+        else:
+            print(f"Launching Workflow 1 for {assembly_id}...")
         os.system(command_lines['Workflow_1'])
         print(f"Workflow 1 for {assembly_id} ({species_name}) has been launched.\n")
 
@@ -484,6 +492,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             reswf1 = json.load(wf1json)
             invocation_wf1 = reswf1["tests"][0]["data"]['invocation_details']['details']['invocation_id']
             list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
+            # Also extract history_id from JSON file to avoid unnecessary API calls
+            if 'history_id' in reswf1["tests"][0]["data"]['invocation_details']:
+                history_id = reswf1["tests"][0]["data"]['invocation_details']['history_id']
+                list_metadata[assembly_id]['history_id'] = history_id
 
     # If we STILL don't have invocation (workflow just launched), can't proceed
     if not invocation_wf1 or invocation_wf1 == 'NA':
@@ -560,7 +572,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     # If not found, prepare and launch
     if not invocation_wf4 or invocation_wf4 == 'NA':
-        print(f"No previous run found for Workflow 4. Preparing and launching...")
+        if is_resume:
+            print(f"No previous run found for Workflow 4. Preparing and launching...")
+        else:
+            print(f"Preparing and launching Workflow 4 for {assembly_id}...")
         prepare_yaml_wf4(assembly_id, list_metadata, profile_data)
         os.system(command_lines["Workflow_4"])
         print(f"Workflow 4 for {assembly_id} ({species_name}) has been launched.\n")
@@ -629,7 +644,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     # If not found, prepare and launch (non-blocking for other workflows)
     if not invocation_wf0 or invocation_wf0 == 'NA':
-        print(f"No previous run found for Workflow 0. Preparing and launching...")
+        if is_resume:
+            print(f"No previous run found for Workflow 0. Preparing and launching...")
+        else:
+            print(f"Preparing and launching Workflow 0 for {assembly_id}...")
         prepare_yaml_wf0(assembly_id, list_metadata, wf4_inv)
         os.system(command_lines["Workflow_0"])
         print(f"Workflow 0 for {assembly_id} ({species_name}) has been launched.\n")
@@ -722,7 +740,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         haplotype_name = hap_mapping[hap_code]
         wf8_key = f"Workflow_8_{hap_code}"
 
-        print(f"No previous run found for Workflow 8 ({haplotype_name}). Launching...")
+        if is_resume:
+            print(f"No previous run found for Workflow 8 ({haplotype_name}). Launching...")
+        else:
+            print(f"Launching Workflow 8 ({haplotype_name}) for {assembly_id}...")
         if wf8_key in command_lines:
             os.system(command_lines[wf8_key])
             print(f"Workflow 8 ({haplotype_name}) for {assembly_id} ({species_name}) has been launched.\n")
@@ -876,7 +897,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         haplotype_name = hap_mapping[hap_code]
         wf9_key = f"Workflow_9_{hap_code}"
 
-        print(f"No previous run found for Workflow 9 ({haplotype_name}). Launching...")
+        if is_resume:
+            print(f"No previous run found for Workflow 9 ({haplotype_name}). Launching...")
+        else:
+            print(f"Launching Workflow 9 ({haplotype_name}) for {assembly_id}...")
         if wf9_key in command_lines:
             os.system(command_lines[wf9_key])
             print(f"Workflow 9 ({haplotype_name}) for {assembly_id} ({species_name}) has been launched.\n")
