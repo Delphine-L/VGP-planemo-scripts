@@ -325,7 +325,7 @@ def fetch_invocation_from_history(gi, history_id, workflow_name, haplotype=None,
     Args:
         gi (GalaxyInstance): Galaxy instance object
         history_id (str): History ID (already looked up and cached)
-        workflow_name (str): Workflow name to match (e.g., "kmer-profiling-hifi-VGP1")
+        workflow_name (str): Workflow name to match (e.g., "VGP1", "VGP4", "VGP8")
         haplotype (str, optional): For VGP8/VGP9, specify 'hap1' or 'hap2'
         cache (dict, optional): Pre-built invocation cache from build_invocation_cache()
 
@@ -601,7 +601,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     else:
         if is_resume and history_id:
             print(f"Searching history for Workflow 1 invocation for {assembly_id}...")
-            invocation_wf1 = fetch_invocation_from_history(gi, history_id, "kmer-profiling-hifi-VGP1")
+            invocation_wf1 = fetch_invocation_from_history(gi, history_id, "VGP1")
             if invocation_wf1:
                 print(f"Found invocation {invocation_wf1} in history")
                 list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
@@ -723,7 +723,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 history_invocation_cache = build_invocation_cache(gi, history_id)
 
             print(f"Searching history for Workflow 4 invocation for {assembly_id}...")
-            invocation_wf4 = fetch_invocation_from_history(gi, history_id, "Assembly-Hifi-HiC-phasing-VGP4", cache=history_invocation_cache)
+            invocation_wf4 = fetch_invocation_from_history(gi, history_id, "VGP4", cache=history_invocation_cache)
             if invocation_wf4:
                 print(f"Found invocation {invocation_wf4} in history")
                 list_metadata[assembly_id]["invocations"]["Workflow_4"] = invocation_wf4
@@ -814,7 +814,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 history_invocation_cache = build_invocation_cache(gi, history_id)
 
             print(f"Searching history for Workflow 0 invocation for {assembly_id}...")
-            invocation_wf0 = fetch_invocation_from_history(gi, history_id, "Mitogenome-assembly-VGP0", cache=history_invocation_cache)
+            invocation_wf0 = fetch_invocation_from_history(gi, history_id, "VGP0", cache=history_invocation_cache)
             if invocation_wf0:
                 print(f"Found invocation {invocation_wf0} in history")
                 list_metadata[assembly_id]["invocations"]["Workflow_0"] = invocation_wf0
@@ -907,7 +907,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     history_invocation_cache = build_invocation_cache(gi, history_id)
 
                 print(f"Searching history for Workflow 8 ({haplotype_name}) invocation for {assembly_id}...")
-                invocation_wf8 = fetch_invocation_from_history(gi, history_id, "Scaffolding-HiC-VGP8", haplotype=haplotype_name, cache=history_invocation_cache)
+                invocation_wf8 = fetch_invocation_from_history(gi, history_id, "VGP8", haplotype=haplotype_name, cache=history_invocation_cache)
                 if invocation_wf8:
                     print(f"Found invocation {invocation_wf8} in history")
                     list_metadata[assembly_id]["invocations"][wf8_key] = invocation_wf8
@@ -1058,7 +1058,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     history_invocation_cache = build_invocation_cache(gi, history_id)
 
                 print(f"Searching history for Workflow 9 ({haplotype_name}) invocation for {assembly_id}...")
-                invocation_wf9 = fetch_invocation_from_history(gi, history_id, "Assembly-decontamination-VGP9", haplotype=haplotype_name, cache=history_invocation_cache)
+                invocation_wf9 = fetch_invocation_from_history(gi, history_id, "VGP9", haplotype=haplotype_name, cache=history_invocation_cache)
                 if invocation_wf9:
                     print(f"Found invocation {invocation_wf9} in history")
                     list_metadata[assembly_id]["invocations"][wf9_key] = invocation_wf9
