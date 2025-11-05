@@ -825,7 +825,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             print(f"No previous run found for Workflow 0. Preparing and launching...")
         else:
             print(f"Preparing and launching Workflow 0 for {assembly_id}...")
-        prepare_yaml_wf0(assembly_id, list_metadata, wf4_inv)
+        prepare_yaml_wf0(assembly_id, list_metadata, wf4_inv, profile_data)
         os.system(command_lines["Workflow_0"])
         print(f"Workflow 0 for {assembly_id} ({species_name}) has been launched.\n")
 
@@ -921,7 +921,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     # Prepare YAML for workflows that need to be launched
     if wf8_to_launch:
         for hap_code in wf8_to_launch:
-            prepare_yaml_wf8(assembly_id, list_metadata, wf4_inv)
+            prepare_yaml_wf8(assembly_id, list_metadata, wf4_inv, profile_data)
 
     # Launch workflows
     for hap_code in wf8_to_launch:
@@ -1346,7 +1346,7 @@ def prepare_yaml_wf4(assembly_id, list_metadata, profile_data):
     with open(list_metadata[assembly_id]['job_files']['Workflow_4'], 'w') as yaml_wf4:
         yaml_wf4.write(filedata)
 
-def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4):
+def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4, profile_data):
     dic_data_ids=get_datasets_ids(invocation_wf4)
     path_script=profile_data['path_script']
     with open(path_script+"/templates/wf8_run.sample.yaml", 'r') as sample_file:
@@ -1360,7 +1360,7 @@ def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4):
     with open(list_metadata[assembly_id]['job_files']['Workflow_8'], 'w') as yaml_wf8:
         yaml_wf8.write(filedata)
         
-def prepare_yaml_wf0(assembly_id, list_metadata, invocation_wf4):
+def prepare_yaml_wf0(assembly_id, list_metadata, invocation_wf4, profile_data):
     dic_data_ids=get_datasets_ids(invocation_wf4)
     path_script=profile_data['path_script']
     with open(path_script+"/templates/wf0_run.sample.yaml", 'r') as sample_file:
