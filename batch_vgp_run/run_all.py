@@ -39,7 +39,11 @@ def main():
     parser.add_argument('-r', '--resume', required=False, action='store_true',  help='Resume a previous run using the metadata json file produced at the end of the run_all.py script and found in the metadata directory.')
     parser.add_argument('--retry-failed', required=False, action='store_true',  help='When used with --resume, automatically retry any failed or cancelled invocations by launching them again.')
     parser.add_argument('--fetch-urls', required=False, action='store_true',  help='Fetch GenomeArk file URLs before running workflows. Use this when the input table only contains Species and Assembly columns (no file paths).')
+    parser.add_argument('-q', '--quiet', required=False, action='store_true',  help='Quiet mode: only show warnings and errors, suppress informational messages.')
     args = parser.parse_args()
+
+    # Initialize logging with quiet flag
+    function.setup_logging(quiet=args.quiet)
 
     # Validate that --retry-failed is only used with --resume
     if args.retry_failed and not args.resume:

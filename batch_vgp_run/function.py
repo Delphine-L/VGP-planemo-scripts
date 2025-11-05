@@ -2,6 +2,7 @@
 
 
 import os
+import sys
 import requests
 import zipfile
 import json
@@ -12,6 +13,49 @@ from collections import defaultdict
 import time
 import threading
 import subprocess
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+def setup_logging(quiet=False):
+    """
+    Configure logging for the VGP pipeline.
+
+    Args:
+        quiet (bool): If True, only show warnings and errors
+    """
+    # Set logging level based on quiet flag
+    level = logging.WARNING if quiet else logging.INFO
+
+    # Configure logging format
+    log_format = '%(message)s'  # Simple format for user-facing messages
+
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        format=log_format,
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+    # Set module logger level
+    logger.setLevel(level)
+
+def log_info(message):
+    """Log informational message (suppressed in quiet mode)."""
+    logger.info(message)
+
+def log_warning(message):
+    """Log warning message to both logger and stderr (always shown)."""
+    logger.warning(message)
+    print(f"Warning: {message}", file=sys.stderr)
+
+def log_error(message):
+    """Log error message to both logger and stderr (always shown)."""
+    logger.error(message)
+    print(f"Error: {message}", file=sys.stderr)
 
 def find_duplicate_values(input_dict):
     """
@@ -363,8 +407,8 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, po
     else:
         poll_display = f"{poll_interval} seconds"
 
-    print(f"Waiting for {len(invocation_ids)} invocation(s) to complete for {assembly_id}{wf_info}...")
-    print(f"Polling every {poll_display}. Press Ctrl+C to interrupt and resume later with --resume.\n")
+    log_info(f"Waiting for {len(invocation_ids)} invocation(s) to complete for {assembly_id}{wf_info}...")
+    log_info(f"Polling every {poll_display}. Press Ctrl+C to interrupt and resume later with --resume.\n")
 
     poll_count = 0
     while True:
@@ -373,7 +417,7 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, po
         # Get current timestamp
         from datetime import datetime
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[Poll #{poll_count}, {current_time}, elapsed: {elapsed//60}m {elapsed%60}s] Checking invocation status...")
+        log_info(f"[Poll #{poll_count}, {current_time}, elapsed: {elapsed//60}m {elapsed%60}s] Checking invocation status...")
 
         all_done = True
         for inv_id in invocation_ids:
@@ -407,11 +451,11 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, po
                         statuses[inv_id] = status
                         inv_label = inv_dict.get(inv_id, inv_id)
                         if status == 'ok':
-                            print(f"  ✓ {inv_label} ({assembly_id}): completed successfully{job_info}")
+                            log_info(f"  ✓ {inv_label} ({assembly_id}): completed successfully{job_info}")
                         elif status in ['error', 'failed']:
-                            print(f"  ✗ {inv_label} ({assembly_id}): {status}{job_info}")
+                            log_warning(f"{inv_label} ({assembly_id}): {status}{job_info}")
                         else:
-                            print(f"  → {inv_label} ({assembly_id}): {status}{job_info}")
+                            log_info(f"  → {inv_label} ({assembly_id}): {status}{job_info}")
 
                     if status not in ['ok', 'error', 'failed']:
                         all_done = False
@@ -421,16 +465,16 @@ def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, po
                     all_done = False
 
         if all_done:
-            print(f"\n✓ All invocations completed for {assembly_id}{wf_info}\n")
+            log_info(f"\n✓ All invocations completed for {assembly_id}{wf_info}\n")
             break
 
         # Check timeout
         if time.time() - start_time > timeout:
-            print(f"\nWarning: Timeout reached after {timeout} seconds ({timeout//3600} hours)")
+            log_warning(f"Timeout reached after {timeout} seconds ({timeout//3600} hours)")
             break
 
         # Wait before next check
-        print(f"  Waiting {poll_display} before next check...")
+        log_info(f"  Waiting {poll_display} before next check...")
         time.sleep(poll_interval)
 
     return statuses
@@ -458,7 +502,7 @@ def mark_invocation_as_failed(assembly_id, list_metadata, workflow_key, invocati
     # Add to failed list if not already there
     if invocation_id not in list_metadata[assembly_id]['failed_invocations'][workflow_key]:
         list_metadata[assembly_id]['failed_invocations'][workflow_key].append(invocation_id)
-        print(f"⚠ Invocation {invocation_id} for {workflow_key} marked as failed")
+        log_warning(f"Invocation {invocation_id} for {workflow_key} marked as failed")
 
     # Remove from regular invocations (reset to 'NA' so it can be retried)
     if workflow_key in list_metadata[assembly_id]['invocations']:
@@ -483,7 +527,7 @@ def save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run):
         with open(metadata_file, 'w') as json_file:
             json.dump(list_metadata[assembly_id], json_file, indent=4)
     except Exception as e:
-        print(f"Warning: Could not save species metadata for {assembly_id}: {e}")
+        log_warning(f"Could not save species metadata for {assembly_id}: {e}")
 
 def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow_data, is_resume=False):
     """
@@ -571,20 +615,37 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         os.system(command_lines['Workflow_1'])
         print(f"Workflow 1 for {assembly_id} ({species_name}) has been launched.\n")
 
-        # Try to get invocation from newly created JSON
-        if os.path.exists(list_metadata[assembly_id]["invocation_jsons"]["Workflow_1"]):
-            wf1json = open(list_metadata[assembly_id]["invocation_jsons"]["Workflow_1"])
-            reswf1 = json.load(wf1json)
-            invocation_wf1 = reswf1["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-            list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
-            # Also extract history_id from JSON file to avoid unnecessary API calls
-            if 'history_id' in reswf1["tests"][0]["data"]['invocation_details']:
-                history_id = reswf1["tests"][0]["data"]['invocation_details']['history_id']
-                list_metadata[assembly_id]['history_id'] = history_id
+        # Wait for invocation JSON to be written (retry up to 30 seconds)
+        wf1_json_path = list_metadata[assembly_id]["invocation_jsons"]["Workflow_1"]
+        max_retries = 10
+        retry_interval = 3  # seconds
+        for attempt in range(max_retries):
+            if os.path.exists(wf1_json_path):
+                try:
+                    with open(wf1_json_path) as wf1json:
+                        reswf1 = json.load(wf1json)
+                    invocation_wf1 = reswf1["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                    list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
+                    # Also extract history_id from JSON file to avoid unnecessary API calls
+                    if 'history_id' in reswf1["tests"][0]["data"]['invocation_details']:
+                        history_id = reswf1["tests"][0]["data"]['invocation_details']['history_id']
+                        list_metadata[assembly_id]['history_id'] = history_id
+                    print(f"Retrieved invocation ID for Workflow 1: {invocation_wf1}")
+                    break
+                except (json.JSONDecodeError, KeyError) as e:
+                    if attempt < max_retries - 1:
+                        print(f"Waiting for Workflow 1 invocation data to be written (attempt {attempt+1}/{max_retries})...")
+                        time.sleep(retry_interval)
+                    else:
+                        print(f"Warning: Could not parse Workflow 1 JSON after {max_retries} attempts")
+            else:
+                if attempt < max_retries - 1:
+                    print(f"Waiting for Workflow 1 invocation JSON file (attempt {attempt+1}/{max_retries})...")
+                    time.sleep(retry_interval)
 
     # If we STILL don't have invocation (workflow just launched), can't proceed
     if not invocation_wf1 or invocation_wf1 == 'NA':
-        print(f"Workflow 1 just launched for {assembly_id}. Waiting for invocation data to be written.")
+        print(f"Workflow 1 just launched for {assembly_id}, but invocation data is not yet available.")
         print(f"You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
@@ -677,16 +738,33 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         os.system(command_lines["Workflow_4"])
         print(f"Workflow 4 for {assembly_id} ({species_name}) has been launched.\n")
 
-        # Try to get from newly created JSON
-        if os.path.exists(list_metadata[assembly_id]["invocation_jsons"]["Workflow_4"]):
-            wf4json = open(list_metadata[assembly_id]["invocation_jsons"]["Workflow_4"])
-            reswf4 = json.load(wf4json)
-            invocation_wf4 = reswf4["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-            list_metadata[assembly_id]["invocations"]["Workflow_4"] = invocation_wf4
+        # Wait for invocation JSON to be written (retry up to 30 seconds)
+        wf4_json_path = list_metadata[assembly_id]["invocation_jsons"]["Workflow_4"]
+        max_retries = 10
+        retry_interval = 3  # seconds
+        for attempt in range(max_retries):
+            if os.path.exists(wf4_json_path):
+                try:
+                    with open(wf4_json_path) as wf4json:
+                        reswf4 = json.load(wf4json)
+                    invocation_wf4 = reswf4["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                    list_metadata[assembly_id]["invocations"]["Workflow_4"] = invocation_wf4
+                    print(f"Retrieved invocation ID for Workflow 4: {invocation_wf4}")
+                    break
+                except (json.JSONDecodeError, KeyError) as e:
+                    if attempt < max_retries - 1:
+                        print(f"Waiting for Workflow 4 invocation data to be written (attempt {attempt+1}/{max_retries})...")
+                        time.sleep(retry_interval)
+                    else:
+                        print(f"Warning: Could not parse Workflow 4 JSON after {max_retries} attempts")
+            else:
+                if attempt < max_retries - 1:
+                    print(f"Waiting for Workflow 4 invocation JSON file (attempt {attempt+1}/{max_retries})...")
+                    time.sleep(retry_interval)
 
     # If we STILL don't have invocation, can't proceed
     if not invocation_wf4 or invocation_wf4 == 'NA':
-        print(f"Workflow 4 just launched for {assembly_id}. Waiting for invocation data to be written.")
+        print(f"Workflow 4 just launched for {assembly_id}, but invocation data is not yet available.")
         print(f"You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
@@ -858,14 +936,32 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             os.system(command_lines[wf8_key])
             print(f"Workflow 8 ({haplotype_name}) for {assembly_id} ({species_name}) has been launched.\n")
 
-            # Try to get from newly created JSON
+            # Wait for invocation JSON to be written (retry up to 30 seconds)
             wf8_json_path = list_metadata[assembly_id]["invocation_jsons"].get(wf8_key)
-            if wf8_json_path and os.path.exists(wf8_json_path):
-                wf8json = open(wf8_json_path)
-                reswf8 = json.load(wf8json)
-                invocation_wf8 = reswf8["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-                list_metadata[assembly_id]["invocations"][wf8_key] = invocation_wf8
-                wf8_invocations[hap_code] = invocation_wf8
+            if wf8_json_path:
+                max_retries = 10
+                retry_interval = 3  # seconds
+                invocation_wf8 = None
+                for attempt in range(max_retries):
+                    if os.path.exists(wf8_json_path):
+                        try:
+                            with open(wf8_json_path) as wf8json:
+                                reswf8 = json.load(wf8json)
+                            invocation_wf8 = reswf8["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                            list_metadata[assembly_id]["invocations"][wf8_key] = invocation_wf8
+                            wf8_invocations[hap_code] = invocation_wf8
+                            print(f"Retrieved invocation ID for Workflow 8 ({haplotype_name}): {invocation_wf8}")
+                            break
+                        except (json.JSONDecodeError, KeyError) as e:
+                            if attempt < max_retries - 1:
+                                print(f"Waiting for Workflow 8 ({haplotype_name}) invocation data (attempt {attempt+1}/{max_retries})...")
+                                time.sleep(retry_interval)
+                            else:
+                                print(f"Warning: Could not parse Workflow 8 ({haplotype_name}) JSON after {max_retries} attempts")
+                    else:
+                        if attempt < max_retries - 1:
+                            print(f"Waiting for Workflow 8 ({haplotype_name}) JSON file (attempt {attempt+1}/{max_retries})...")
+                            time.sleep(retry_interval)
 
     # Store dataset IDs for Workflow 8 (both haplotypes)
     for hap_code, inv_id in wf8_invocations.items():
@@ -1033,14 +1129,32 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             os.system(command_lines[wf9_key])
             print(f"Workflow 9 ({haplotype_name}) for {assembly_id} ({species_name}) has been launched.\n")
 
-            # Try to get from newly created JSON
+            # Wait for invocation JSON to be written (retry up to 30 seconds)
             wf9_json_path = list_metadata[assembly_id]["invocation_jsons"].get(wf9_key)
-            if wf9_json_path and os.path.exists(wf9_json_path):
-                wf9json = open(wf9_json_path)
-                reswf9 = json.load(wf9json)
-                invocation_wf9 = reswf9["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-                list_metadata[assembly_id]["invocations"][wf9_key] = invocation_wf9
-                wf9_invocations[hap_code] = invocation_wf9
+            if wf9_json_path:
+                max_retries = 10
+                retry_interval = 3  # seconds
+                invocation_wf9 = None
+                for attempt in range(max_retries):
+                    if os.path.exists(wf9_json_path):
+                        try:
+                            with open(wf9_json_path) as wf9json:
+                                reswf9 = json.load(wf9json)
+                            invocation_wf9 = reswf9["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                            list_metadata[assembly_id]["invocations"][wf9_key] = invocation_wf9
+                            wf9_invocations[hap_code] = invocation_wf9
+                            print(f"Retrieved invocation ID for Workflow 9 ({haplotype_name}): {invocation_wf9}")
+                            break
+                        except (json.JSONDecodeError, KeyError) as e:
+                            if attempt < max_retries - 1:
+                                print(f"Waiting for Workflow 9 ({haplotype_name}) invocation data (attempt {attempt+1}/{max_retries})...")
+                                time.sleep(retry_interval)
+                            else:
+                                print(f"Warning: Could not parse Workflow 9 ({haplotype_name}) JSON after {max_retries} attempts")
+                    else:
+                        if attempt < max_retries - 1:
+                            print(f"Waiting for Workflow 9 ({haplotype_name}) JSON file (attempt {attempt+1}/{max_retries})...")
+                            time.sleep(retry_interval)
 
     # Store dataset IDs for Workflow 9 (both haplotypes)
     for hap_code, inv_id in wf9_invocations.items():

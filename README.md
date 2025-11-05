@@ -267,6 +267,23 @@ vgp-run-all \
 python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --resume --id
 ````
 
+**Quiet mode and output redirection**:
+
+````bash
+# Quiet mode: only show warnings and errors
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id --quiet
+
+# Redirect output to separate files
+# Info messages → info.log, Warnings/errors → errors.log
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id > info.log 2> errors.log
+
+# All output to single file
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id > all.log 2>&1
+
+# Quiet mode with errors to file
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id --quiet 2> errors.log
+````
+
 ### Parameters
 
 - **-t, --table**: Table with species information. Can be:
@@ -281,6 +298,7 @@ python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --resu
 - **-c, --concurrent**: Number of species to process in parallel (default: 3)
 - **--resume**: Resume a previous run using saved metadata
 - **--retry-failed**: When used with `--resume`, automatically retry failed or cancelled invocations
+- **-q, --quiet**: Quiet mode - only show warnings and errors (suppresses informational messages)
 
 ### Output Files
 
