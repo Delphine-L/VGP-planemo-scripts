@@ -1363,12 +1363,21 @@ def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4, profile_data):
 def prepare_yaml_wf0(assembly_id, list_metadata, invocation_wf4, profile_data):
     dic_data_ids=get_datasets_ids(invocation_wf4)
     path_script=profile_data['path_script']
+
+    # Check that email is provided (required for Workflow 0)
+    if 'email' not in profile_data or not profile_data['email']:
+        raise SystemExit("Error: 'email' field is required in the profile for Workflow 0 (mitochondrial assembly). Please add your email address to the profile YAML file.")
+
     with open(path_script+"/templates/wf0_run.sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
     pattern = r'\["(.*)"\]' # Matches the fields to replace
     to_fill = re.findall(pattern, filedata)
     dic_data_ids['Species Name']=list_metadata[assembly_id]['Name']
     dic_data_ids['Assembly Name']=assembly_id
+    # Add Latin Name (species name with spaces instead of underscores)
+    dic_data_ids['Latin Name']=list_metadata[assembly_id]['Name'].replace("_", " ")
+    # Add email (required field)
+    dic_data_ids['email'] = profile_data['email']
     for i in to_fill:
         filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
     with open(list_metadata[assembly_id]['job_files']['Workflow_0'], 'w') as yaml_wf0:

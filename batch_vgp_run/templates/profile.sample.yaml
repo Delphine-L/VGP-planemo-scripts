@@ -1,5 +1,6 @@
 Galaxy_instance: https://vgp.usegalaxy.org
 Galaxy_key: your_galaxy_api_key_here
+email: your.email@example.com
 Workflow_1: your_workflow_id_or_version_here
 Workflow_4: your_workflow_id_or_version_here
 Workflow_8: your_workflow_id_or_version_here
