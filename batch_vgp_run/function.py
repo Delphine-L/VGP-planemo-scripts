@@ -605,6 +605,15 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             if invocation_wf1:
                 print(f"Found invocation {invocation_wf1} in history")
                 list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
+                # Store dataset IDs for this invocation
+                try:
+                    wf1_inv = gi.invocations.show_invocation(str(invocation_wf1))
+                    list_metadata[assembly_id]["dataset_ids"]["Workflow_1"] = get_datasets_ids(wf1_inv)
+                    print(f"Retrieved dataset IDs for Workflow 1")
+                except Exception as e:
+                    print(f"Warning: Could not retrieve dataset IDs for Workflow 1: {e}")
+                # Save metadata after finding invocation
+                save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
     # If still not found, launch the workflow
     if not invocation_wf1 or invocation_wf1 == 'NA':
@@ -727,6 +736,15 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             if invocation_wf4:
                 print(f"Found invocation {invocation_wf4} in history")
                 list_metadata[assembly_id]["invocations"]["Workflow_4"] = invocation_wf4
+                # Store dataset IDs for this invocation
+                try:
+                    wf4_inv = gi.invocations.show_invocation(str(invocation_wf4))
+                    list_metadata[assembly_id]["dataset_ids"]["Workflow_4"] = get_datasets_ids(wf4_inv)
+                    print(f"Retrieved dataset IDs for Workflow 4")
+                except Exception as e:
+                    print(f"Warning: Could not retrieve dataset IDs for Workflow 4: {e}")
+                # Save metadata after finding invocation
+                save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
     # If not found, prepare and launch
     if not invocation_wf4 or invocation_wf4 == 'NA':
@@ -818,6 +836,15 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             if invocation_wf0:
                 print(f"Found invocation {invocation_wf0} in history")
                 list_metadata[assembly_id]["invocations"]["Workflow_0"] = invocation_wf0
+                # Store dataset IDs for this invocation
+                try:
+                    wf0_inv = gi.invocations.show_invocation(str(invocation_wf0))
+                    list_metadata[assembly_id]["dataset_ids"]["Workflow_0"] = get_datasets_ids(wf0_inv)
+                    print(f"Retrieved dataset IDs for Workflow 0")
+                except Exception as e:
+                    print(f"Warning: Could not retrieve dataset IDs for Workflow 0: {e}")
+                # Save metadata after finding invocation
+                save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
     # If not found, prepare and launch (non-blocking for other workflows)
     if not invocation_wf0 or invocation_wf0 == 'NA':
@@ -911,6 +938,15 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if invocation_wf8:
                     print(f"Found invocation {invocation_wf8} in history")
                     list_metadata[assembly_id]["invocations"][wf8_key] = invocation_wf8
+                    # Store dataset IDs for this invocation
+                    try:
+                        wf8_inv = gi.invocations.show_invocation(str(invocation_wf8))
+                        list_metadata[assembly_id]["dataset_ids"][wf8_key] = get_datasets_ids(wf8_inv)
+                        print(f"Retrieved dataset IDs for Workflow 8 ({haplotype_name})")
+                    except Exception as e:
+                        print(f"Warning: Could not retrieve dataset IDs for Workflow 8 ({haplotype_name}): {e}")
+                    # Save metadata after finding invocation
+                    save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
         # Mark for launch if not found
         if not invocation_wf8 or invocation_wf8 == 'NA':
@@ -1062,6 +1098,15 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if invocation_wf9:
                     print(f"Found invocation {invocation_wf9} in history")
                     list_metadata[assembly_id]["invocations"][wf9_key] = invocation_wf9
+                    # Store dataset IDs for this invocation
+                    try:
+                        wf9_inv = gi.invocations.show_invocation(str(invocation_wf9))
+                        list_metadata[assembly_id]["dataset_ids"][wf9_key] = get_datasets_ids(wf9_inv)
+                        print(f"Retrieved dataset IDs for Workflow 9 ({haplotype_name})")
+                    except Exception as e:
+                        print(f"Warning: Could not retrieve dataset IDs for Workflow 9 ({haplotype_name}): {e}")
+                    # Save metadata after finding invocation
+                    save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
         # Mark for launch if not found
         if not invocation_wf9 or invocation_wf9 == 'NA':
