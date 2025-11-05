@@ -32,6 +32,7 @@ def main():
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf8_mCteGun2_v2.0.yaml)") 
+    parser.add_argument('-r', '--report', required=False, action='store_true', help="Optional: Download the invocation report pdf for wf4")
 
     group = parser.add_argument_group("Haplotype","Select one and only one of these options to specify what haplotype you are scaffolding")
     haps = group.add_mutually_exclusive_group() 
@@ -161,15 +162,22 @@ def main():
             raise SystemExit("Error: The species name for the invocation does no fit the name in the table: "+spec_name+". Please check the invocation number.") 
 
         dic_data_ids['haplotype']=haplotype
-        dic_data_ids['gfa_assembly']=dic_data_ids[gfa_input]
+        try:
+            dic_data_ids['gfa_assembly']=dic_data_ids[gfa_input]
+        except KeyError:
+            
+            print("Warning: Invocation skipped because some inputs are not found in the invocation outputs. This may be because the invocation hasn't been fully scheduled yet. Invocation State: "+invocation_state+" Please check the invocation number.")
 
-        if os.path.exists(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf'):
-            print("WF4 report already downloaded for "+spec_id)
+        if args.report:
+            if os.path.exists(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf'):
+                print("WF4 report already downloaded for "+spec_id)
+            else:
+                gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
+
+            list_reports.append(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
         else:
-            gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
-
-        list_reports.append(species_path+'reports/report_wf4_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
-
+            list_reports.append("NA")
+            
         history_id=wf4_inv['history_id']
         list_yml.append(yml_file)
         list_res.append(res_file)

@@ -32,7 +32,8 @@ def main():
     parser.add_argument('-g', '--galaxy_instance', dest="instance", required=True, help='The URL of your prefered Galaxy instance. E.g https://vgp.usegalaxy.org/ ')  
     parser.add_argument('-k', '--apikey', dest="apikey",required=True, help="Your Galaxy API Key")  
     parser.add_argument('-s', '--suffix', dest="suffix",  required=False,  default="", help="Optional: Specify a suffix for your run (e.g. 'v2.0' to name the job file wf4_mCteGun2_v2.0.yaml)") 
- 
+    parser.add_argument('-r', '--report', required=False, action='store_true', help="Optional: Download the invocation report pdf for wf1")
+
     use_file = parser.add_argument_group("Workflow File","Use the following options to use a workflow file.")
     use_file.add_argument('--from_file', action='store_true', required=False, help='Use a workflow file.')
     use_file.add_argument('-v', '--wfl_version', dest="wfl_version",  required=False,  default="0.3.4", help="Optional: Specify which version of the workflow to run. Must be compatible with the sample yaml files (default: 0.3.4)")    
@@ -122,7 +123,7 @@ def main():
         wf1_inv=gi.invocations.show_invocation(str(invocation_number))
         invocation_state=gi.invocations.get_invocation_summary(str(invocation_number))['populated_state']
 
-        if invocation_state!='ok':
+        if invocation_state!='ok' and invocation_state!='new':
             print("Skipped "+spec_id+": Invocation incomplete, Status: "+invocation_state+", url: "+galaxy_instance+"/workflows/invocations/"+invocation_number)
             list_reports.append("NA")
             commands.append("NA")
@@ -135,8 +136,11 @@ def main():
         if dic_data_ids['Species Name']!=spec_name:
             raise SystemExit("Error: The species name for the invocation does no fit the name in the table: "+spec_name+". Please check the invocation number.") 
 
-        gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf1_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
-        list_reports.append(species_path+'reports/report_wf1_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
+        if args.report:
+            gi.invocations.get_invocation_report_pdf(str(invocation_number),file_path=species_path+'reports/report_wf1_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
+            list_reports.append(species_path+'reports/report_wf1_'+spec_id+suffix_run+'_'+invocation_number+'.pdf')
+        else:
+            list_reports.append("NA")
         str_elements=""
 
 
