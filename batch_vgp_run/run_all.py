@@ -212,6 +212,10 @@ def main():
         else:
             print("✓ No failed invocations found.\n")
 
+        # Pre-fetch all invocations from histories to minimize API calls during threading
+        suffix_run = profile_data['Suffix']
+        function.batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run)
+
     else:
         infos=pandas.read_csv(args.species, header=0, sep="\t")
         list_metadata={}

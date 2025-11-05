@@ -146,6 +146,55 @@ def get_worfklow(Compatible_version, workflow_name, workflow_repo):
     return file_path, release_number
 
 
+def get_datasets_ids_from_json(json_path):
+    """
+    Extract dataset IDs from a planemo invocation JSON file.
+    When planemo runs without --no-wait, the JSON contains all output information.
+
+    Args:
+        json_path (str): Path to the planemo invocation JSON file
+
+    Returns:
+        dict: Dataset IDs mapped by output label, or None if file doesn't exist or workflow incomplete
+    """
+    if not os.path.exists(json_path):
+        return None
+
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        # Get invocation details from planemo JSON structure
+        test_data = data.get('tests', [{}])[0].get('data', {})
+
+        # Check if workflow completed successfully
+        status = test_data.get('status')
+        if status not in ['success', 'error']:  # error state might still have outputs
+            return None
+
+        # Get the invocation details
+        invocation_details = test_data.get('invocation_details', {}).get('details', {})
+
+        if not invocation_details:
+            return None
+
+        # Extract invocation data from the details (similar structure to API response)
+        # The invocation details should have been populated by planemo after workflow completion
+        invocation_json_path = json_path.replace('.json', '_invocation.json')
+
+        # Try to read from the invocation details embedded in the test output
+        # Planemo should have populated this when workflow completed
+        if 'invocation' in test_data:
+            invocation = test_data['invocation']
+            return get_datasets_ids(invocation)
+
+        # Fallback: return None if invocation data not in JSON
+        return None
+
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        print(f"Warning: Could not parse dataset IDs from {json_path}: {e}")
+        return None
+
 def get_datasets_ids(invocation):
     dic_datasets_ids={key: value['id'] for key,value in invocation['outputs'].items()}
     dic_datasets_ids.update({value['label']: value['id'] for key,value in invocation['inputs'].items()})
@@ -197,6 +246,38 @@ def check_invocation_complete(gi, invocation_id):
     except Exception as e:
         print(f"  Warning: Could not check status for invocation {invocation_id}: {e}")
         return (False, 'error')
+
+def check_required_outputs_exist(gi, invocation_id, required_outputs):
+    """
+    Check if specific required outputs exist in a workflow invocation.
+    This allows launching downstream workflows before the upstream workflow is fully complete.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        invocation_id (str): Invocation ID to check
+        required_outputs (list): List of output names that must exist (e.g., ['gfa_assembly', 'Estimated Genome size'])
+
+    Returns:
+        tuple: (outputs_ready, missing_outputs)
+               outputs_ready (bool): True if all required outputs exist
+               missing_outputs (list): List of output names that are missing
+    """
+    try:
+        # Get full invocation object with outputs
+        invocation = gi.invocations.show_invocation(str(invocation_id))
+
+        # Extract all dataset IDs/outputs using existing function
+        available_outputs = get_datasets_ids(invocation)
+
+        # Check which required outputs are missing
+        missing_outputs = [output for output in required_outputs if output not in available_outputs]
+
+        outputs_ready = len(missing_outputs) == 0
+
+        return (outputs_ready, missing_outputs)
+    except Exception as e:
+        print(f"  Warning: Could not check outputs for invocation {invocation_id}: {e}")
+        return (False, required_outputs)  # Assume all outputs missing on error
 
 def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, is_resume=False):
     """
@@ -373,6 +454,164 @@ def fetch_invocation_from_history(gi, history_id, workflow_name, haplotype=None,
     except Exception as e:
         print(f"Warning: Error searching history for {workflow_name}: {e}")
         return None
+
+def poll_until_invocation_complete(gi, invocation_id, workflow_name, assembly_id, poll_interval=3600, max_polls=24):
+    """
+    Poll an invocation until it reaches a terminal state (ok, error, failed, cancelled).
+    Used in resume mode when an invocation is still running.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        invocation_id (str): Invocation ID to poll
+        workflow_name (str): Workflow name for logging
+        assembly_id (str): Assembly ID for logging
+        poll_interval (int): Seconds between polls (default: 3600 = 1 hour)
+        max_polls (int): Maximum number of polls before giving up (default: 24 = 24 hours)
+
+    Returns:
+        tuple: (is_complete: bool, state: str)
+    """
+    print(f"\n{'='*60}")
+    print(f"Polling {workflow_name} for {assembly_id} (invocation: {invocation_id})")
+    print(f"Status will be checked every {poll_interval//60} minutes")
+    print(f"{'='*60}\n")
+
+    for poll_count in range(max_polls):
+        try:
+            summary = gi.invocations.get_invocation_summary(str(invocation_id))
+            state = summary.get('populated_state', 'unknown')
+
+            print(f"Poll {poll_count + 1}/{max_polls}: {workflow_name} state = {state}")
+
+            # Check if reached terminal state
+            if state in ['ok', 'error', 'failed', 'cancelled']:
+                if state == 'ok':
+                    print(f"✓ {workflow_name} completed successfully!")
+                    return (True, state)
+                else:
+                    print(f"✗ {workflow_name} finished with state: {state}")
+                    return (True, state)
+
+            # Still running, wait before next poll
+            if poll_count < max_polls - 1:  # Don't sleep on last iteration
+                print(f"  Workflow still running. Sleeping for {poll_interval//60} minutes...")
+                print(f"  (You can safely interrupt with Ctrl+C and resume later)\n")
+                time.sleep(poll_interval)
+
+        except Exception as e:
+            print(f"Warning: Error checking invocation status: {e}")
+            if poll_count < max_polls - 1:
+                print(f"  Retrying in {poll_interval//60} minutes...\n")
+                time.sleep(poll_interval)
+
+    # Max polls reached
+    print(f"⚠ Maximum polling time reached for {workflow_name}")
+    return (False, 'timeout')
+
+def batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run):
+    """
+    Pre-populate all species metadata with invocations from their histories.
+    This centralizes all API calls before threading to minimize API load.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        list_metadata (dict): All species metadata
+        profile_data (dict): Profile configuration
+        suffix_run (str): Run suffix
+
+    Returns:
+        None (updates list_metadata in place)
+    """
+    print(f"\n{'='*60}")
+    print("Pre-fetching invocations from Galaxy histories...")
+    print(f"{'='*60}\n")
+
+    # Group species by history_id to minimize API calls
+    history_to_species = {}
+    for species_id, metadata in list_metadata.items():
+        history_id = metadata.get('history_id', 'NA')
+        if history_id != 'NA':
+            if history_id not in history_to_species:
+                history_to_species[history_id] = []
+            history_to_species[history_id].append(species_id)
+
+    if not history_to_species:
+        print("No histories to fetch from.\n")
+        return
+
+    print(f"Found {len(history_to_species)} unique histories to check")
+
+    # Workflow keys to search for
+    workflow_search_map = {
+        'Workflow_1': 'VGP1',
+        'Workflow_4': 'VGP4',
+        'Workflow_0': 'VGP0',
+        'Workflow_8_hap1': ('VGP8', 'hap1'),
+        'Workflow_8_hap2': ('VGP8', 'hap2'),
+        'Workflow_9_hap1': ('VGP9', 'hap1'),
+        'Workflow_9_hap2': ('VGP9', 'hap2'),
+        'Workflow_PreCuration': 'PretextMap'
+    }
+
+    # Process each unique history
+    for history_id, species_ids in history_to_species.items():
+        print(f"\nFetching invocations for history: {history_id}")
+        print(f"  Species in this history: {', '.join(species_ids)}")
+
+        # Build cache once for this history (batch API call)
+        cache = build_invocation_cache(gi, history_id)
+
+        # Update all species that share this history
+        for species_id in species_ids:
+            print(f"\n  Updating {species_id}...")
+            updated_count = 0
+
+            for workflow_key, search_params in workflow_search_map.items():
+                # Skip if already have invocation
+                current_inv = list_metadata[species_id]['invocations'].get(workflow_key, 'NA')
+                if current_inv != 'NA':
+                    continue
+
+                # Search for invocation
+                if isinstance(search_params, tuple):
+                    wf_name, haplotype = search_params
+                    invocation_id = fetch_invocation_from_history(gi, history_id, wf_name, haplotype=haplotype, cache=cache)
+                else:
+                    invocation_id = fetch_invocation_from_history(gi, history_id, search_params, cache=cache)
+
+                if invocation_id:
+                    list_metadata[species_id]['invocations'][workflow_key] = invocation_id
+                    print(f"    Found {workflow_key}: {invocation_id}")
+
+                    # Get dataset IDs for this invocation
+                    try:
+                        # Use cached invocation details (no new API call!)
+                        inv_details = cache['invocations'].get(invocation_id)
+                        if inv_details:
+                            dataset_ids = get_datasets_ids(inv_details)
+                            list_metadata[species_id]['dataset_ids'][workflow_key] = dataset_ids
+                            print(f"      Retrieved {len(dataset_ids)} dataset IDs")
+                        else:
+                            # Fallback: make API call if not in cache
+                            inv_details = gi.invocations.show_invocation(str(invocation_id))
+                            dataset_ids = get_datasets_ids(inv_details)
+                            list_metadata[species_id]['dataset_ids'][workflow_key] = dataset_ids
+                            print(f"      Retrieved {len(dataset_ids)} dataset IDs (fallback)")
+                    except Exception as e:
+                        print(f"      Warning: Could not get dataset IDs: {e}")
+
+                    updated_count += 1
+
+            if updated_count > 0:
+                # Save updated metadata for this species
+                save_species_metadata(species_id, list_metadata, profile_data, suffix_run)
+                print(f"  ✓ Updated {updated_count} workflows for {species_id}")
+            else:
+                print(f"  No new invocations found for {species_id}")
+
+    print(f"\n{'='*60}")
+    print("Finished pre-fetching invocations")
+    print(f"{'='*60}\n")
 
 def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, poll_interval=60, timeout=86400):
     """
@@ -559,10 +798,6 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         else:
             print(f"Note: No history found yet for {assembly_id}. Will retrieve from first invocation.")
 
-    # Cache for history invocations (lazy initialization to minimize API calls)
-    # Only built when we need to search for missing invocations
-    history_invocation_cache = None
-
     # Build command lines - use history_id if available (resume), otherwise use history_name
     command_lines = {}
     for key in workflow_data.keys():
@@ -573,9 +808,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
         # Use history_id if we have it (from resume), otherwise use history_name
         if history_id:
-            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file
+            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --test_output_json "+res_file+" > "+log_file
         else:
-            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_name "+history_name+" --no_wait --test_output_json "+res_file+" > "+log_file
+            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_name "+history_name+" --test_output_json "+res_file+" > "+log_file
 
     # === WORKFLOW 1 ===
     invocation_wf1 = None
@@ -597,25 +832,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         invocation_wf1 = list_metadata[assembly_id]["invocations"]["Workflow_1"]
         print(f"Workflow 1 for {assembly_id} ({species_name}) invocation found in metadata.\n")
 
-    # Try to fetch from history (only during resume)
-    else:
-        if is_resume and history_id:
-            print(f"Searching history for Workflow 1 invocation for {assembly_id}...")
-            invocation_wf1 = fetch_invocation_from_history(gi, history_id, "VGP1")
-            if invocation_wf1:
-                print(f"Found invocation {invocation_wf1} in history")
-                list_metadata[assembly_id]["invocations"]["Workflow_1"] = invocation_wf1
-                # Store dataset IDs for this invocation
-                try:
-                    wf1_inv = gi.invocations.show_invocation(str(invocation_wf1))
-                    list_metadata[assembly_id]["dataset_ids"]["Workflow_1"] = get_datasets_ids(wf1_inv)
-                    print(f"Retrieved dataset IDs for Workflow 1")
-                except Exception as e:
-                    print(f"Warning: Could not retrieve dataset IDs for Workflow 1: {e}")
-                # Save metadata after finding invocation
-                save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
-
-    # If still not found, launch the workflow
+    # If not found in metadata (batch update would have populated it if in history), launch the workflow
     if not invocation_wf1 or invocation_wf1 == 'NA':
         if is_resume:
             print(f"No previous run found for Workflow 1. Launching...")
@@ -671,7 +888,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 job_yaml = list_metadata[assembly_id]["job_files"][key]
                 log_file = list_metadata[assembly_id]["planemo_logs"][key]
                 res_file = list_metadata[assembly_id]["invocation_jsons"][key]
-                command_lines[key] = "planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --no_wait --test_output_json "+res_file+" > "+log_file
+                command_lines[key] = "planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --test_output_json "+res_file+" > "+log_file
     elif new_history_id:
         history_id = new_history_id
 
@@ -686,26 +903,37 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
     # === WORKFLOW 4 ===
-    # Check if Workflow 1 is complete before launching Workflow 4
-    wf1_complete, wf1_status = check_invocation_complete(gi, invocation_wf1)
+    # For --resume mode: Check if invocation is complete, poll if needed, then check outputs
+    # For normal mode: Just proceed (trust planemo launched successfully)
+    if is_resume:
+        # First, check if invocation is in a terminal state
+        is_complete, state = check_invocation_complete(gi, invocation_wf1)
 
-    if not wf1_complete:
-        print(f"Workflow 1 for {assembly_id} is still running (status: {wf1_status}). Waiting for completion before launching Workflow 4.")
-        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        # Wait for WF1 to complete (poll every 30 minutes by default, configurable in profile)
-        print(f"Starting automatic polling for Workflow 1 completion...")
-        poll_wf1 = profile_data.get('poll_interval_wf1', 30) * 60  # Convert minutes to seconds
-        wait_for_invocations(gi, [invocation_wf1], assembly_id, workflow_name="Workflow 1", poll_interval=poll_wf1)
-        # Re-check status after waiting
-        wf1_complete, wf1_status = check_invocation_complete(gi, invocation_wf1)
-        if not wf1_complete:
-            print(f"Workflow 1 did not complete successfully. Current status: {wf1_status}")
-            # Mark as failed if status is error or failed
-            if wf1_status in ['error', 'failed']:
-                mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_1", invocation_wf1, profile_data, suffix_run)
+        if not is_complete:
+            # Invocation still running - poll until complete
+            print(f"Workflow 1 for {assembly_id} is still running (state: {state})")
+            poll_interval = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
+            is_complete, state = poll_until_invocation_complete(gi, invocation_wf1, "Workflow 1", assembly_id, poll_interval=poll_interval)
+
+            if not is_complete or state not in ['ok']:
+                print(f"Workflow 1 for {assembly_id} did not complete successfully (state: {state})")
+                if state in ['failed', 'cancelled', 'error']:
+                    mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_1", invocation_wf1, profile_data, suffix_run)
+                return {assembly_id: list_metadata[assembly_id]}
+
+        # Now check if required outputs exist
+        required_wf1_outputs = ['Collection of Pacbio Data', 'Merged Meryl Database', 'GenomeScope summary', 'GenomeScope Model Parameters']
+        outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_wf1, required_wf1_outputs)
+
+        if not outputs_ready:
+            print(f"Workflow 1 for {assembly_id}: Required outputs for WF4 not yet ready. Missing: {', '.join(missing_outputs)}")
+            print(f"Resume again later when Workflow 1 has progressed further.")
             return {assembly_id: list_metadata[assembly_id]}
-
-    print(f"Workflow 1 for {assembly_id} is complete (status: {wf1_status}). Proceeding with Workflow 4.\n")
+        else:
+            print(f"Required outputs from Workflow 1 are ready for {assembly_id}. Proceeding with Workflow 4.\n")
+    else:
+        # Normal mode: WF1 was just launched, proceed to WF4
+        print(f"Workflow 1 launched for {assembly_id}. Proceeding with Workflow 4.\n")
 
     # Try to get Workflow 4 invocation
     invocation_wf4 = None
@@ -881,26 +1109,37 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     }
 
     # === WORKFLOW 8 (Both Haplotypes in Parallel) ===
-    # Check if Workflow 4 is complete before launching Workflow 8
-    wf4_complete, wf4_status = check_invocation_complete(gi, invocation_wf4)
+    # For --resume mode: Check if invocation is complete, poll if needed, then check outputs
+    # For normal mode: Just proceed (trust planemo launched successfully)
+    if is_resume:
+        # First, check if invocation is in a terminal state
+        is_complete, state = check_invocation_complete(gi, invocation_wf4)
 
-    if not wf4_complete:
-        print(f"Workflow 4 for {assembly_id} is still running (status: {wf4_status}). Waiting for completion before launching Workflow 8.")
-        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        # Wait for WF4 to complete (poll every 60 minutes by default, configurable in profile)
-        print(f"Starting automatic polling for Workflow 4 completion...")
-        poll_other = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
-        wait_for_invocations(gi, [invocation_wf4], assembly_id, workflow_name="Workflow 4", poll_interval=poll_other)
-        # Re-check status after waiting
-        wf4_complete, wf4_status = check_invocation_complete(gi, invocation_wf4)
-        if not wf4_complete:
-            print(f"Workflow 4 did not complete successfully. Current status: {wf4_status}")
-            # Mark as failed if status is error or failed
-            if wf4_status in ['error', 'failed']:
-                mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
+        if not is_complete:
+            # Invocation still running - poll until complete
+            print(f"Workflow 4 for {assembly_id} is still running (state: {state})")
+            poll_interval = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
+            is_complete, state = poll_until_invocation_complete(gi, invocation_wf4, "Workflow 4", assembly_id, poll_interval=poll_interval)
+
+            if not is_complete or state not in ['ok']:
+                print(f"Workflow 4 for {assembly_id} did not complete successfully (state: {state})")
+                if state in ['failed', 'cancelled', 'error']:
+                    mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
+                return {assembly_id: list_metadata[assembly_id]}
+
+        # Now check if required outputs exist
+        required_wf4_outputs = ['gfa_assembly', 'Estimated Genome size', 'Trimmed Hi-C reads']
+        outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_wf4, required_wf4_outputs)
+
+        if not outputs_ready:
+            print(f"Workflow 4 for {assembly_id}: Required outputs for WF8 not yet ready. Missing: {', '.join(missing_outputs)}")
+            print(f"Resume again later when Workflow 4 has progressed further.")
             return {assembly_id: list_metadata[assembly_id]}
-
-    print(f"\n=== Workflow 4 complete (status: {wf4_status}). Preparing Workflow 8 for both haplotypes ===\n")
+        else:
+            print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
+    else:
+        # Normal mode: WF4 was just launched, proceed to WF8
+        print(f"\n=== Workflow 4 launched for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
 
     # Try to get invocations for both haplotypes
     wf8_invocations = {}
@@ -1019,40 +1258,65 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
         return {assembly_id: list_metadata[assembly_id]}
 
-    # Check if all Workflow 8 invocations are complete
-    all_wf8_complete = True
-    wf8_statuses = {}
-    for hap_code, inv_id in wf8_invocations.items():
-        is_complete, status = check_invocation_complete(gi, inv_id)
-        wf8_statuses[hap_code] = status
-        if not is_complete:
-            all_wf8_complete = False
-            print(f"Workflow 8 ({hap_mapping[hap_code]}) for {assembly_id} is not yet complete (status: {status}).")
+    # For --resume mode: Check if invocations are complete, poll if needed, then check outputs
+    # For normal mode: Just proceed (trust planemo launched WF8 successfully)
+    if is_resume:
+        # First, check if all WF8 invocations are in terminal states
+        all_complete = True
+        poll_needed = {}
 
-    if not all_wf8_complete:
-        print(f"Workflow 8 is still running for one or more haplotypes. Waiting for completion before launching Workflow 9.")
-        print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        # Wait for all WF8 invocations to complete (poll every 60 minutes by default, configurable in profile)
-        print(f"Starting automatic polling for Workflow 8 completion (both haplotypes)...")
-        # Create dict mapping invocation IDs to their labels
-        wf8_inv_dict = {inv_id: f"Workflow 8 {hap_mapping[hap_code]}" for hap_code, inv_id in wf8_invocations.items()}
-        poll_other = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
-        wait_for_invocations(gi, wf8_inv_dict, assembly_id, workflow_name="Workflow 8", poll_interval=poll_other)
-        # Re-check status after waiting
-        all_wf8_complete = True
         for hap_code, inv_id in wf8_invocations.items():
-            is_complete, status = check_invocation_complete(gi, inv_id)
+            is_complete, state = check_invocation_complete(gi, inv_id)
             if not is_complete:
-                all_wf8_complete = False
-                print(f"Workflow 8 ({hap_mapping[hap_code]}) did not complete successfully. Status: {status}")
-                # Mark as failed if status is error or failed
-                if status in ['error', 'failed']:
-                    wf8_key = f"Workflow_8_{hap_code}"
-                    mark_invocation_as_failed(assembly_id, list_metadata, wf8_key, inv_id, profile_data, suffix_run)
-        if not all_wf8_complete:
-            return {assembly_id: list_metadata[assembly_id]}
+                all_complete = False
+                poll_needed[hap_code] = (inv_id, state)
 
-    print(f"\n=== All Workflow 8 invocations complete. Preparing Workflow 9 for both haplotypes ===\n")
+        # Poll any incomplete invocations
+        if not all_complete:
+            print(f"Some Workflow 8 invocations for {assembly_id} are still running:")
+            for hap_code, (inv_id, state) in poll_needed.items():
+                print(f"  {hap_mapping[hap_code]}: state = {state}")
+
+            poll_interval = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
+
+            # Poll each incomplete invocation
+            for hap_code, (inv_id, state) in poll_needed.items():
+                print(f"\nPolling Workflow 8 ({hap_mapping[hap_code]})...")
+                is_complete, final_state = poll_until_invocation_complete(
+                    gi, inv_id, f"Workflow 8 ({hap_mapping[hap_code]})", assembly_id, poll_interval=poll_interval
+                )
+
+                if not is_complete or final_state not in ['ok']:
+                    print(f"Workflow 8 ({hap_mapping[hap_code]}) for {assembly_id} did not complete successfully (state: {final_state})")
+                    if final_state in ['failed', 'cancelled', 'error']:
+                        wf8_key = f"Workflow_8_{hap_code}"
+                        mark_invocation_as_failed(assembly_id, list_metadata, wf8_key, inv_id, profile_data, suffix_run)
+                    return {assembly_id: list_metadata[assembly_id]}
+
+        # Now check if required outputs exist from all haplotypes
+        required_wf8_outputs = ['Reconciliated Scaffolds: fasta']
+        all_outputs_ready = True
+        wf8_outputs_status = {}
+
+        for hap_code, inv_id in wf8_invocations.items():
+            outputs_ready, missing_outputs = check_required_outputs_exist(gi, inv_id, required_wf8_outputs)
+            wf8_outputs_status[hap_code] = (outputs_ready, missing_outputs)
+            if not outputs_ready:
+                all_outputs_ready = False
+                print(f"Required outputs for WF9 not yet ready from Workflow 8 ({hap_mapping[hap_code]}) for {assembly_id}. Missing: {', '.join(missing_outputs)}")
+
+        if not all_outputs_ready:
+            print(f"Workflow 8 for {assembly_id}: Required outputs for WF9 not yet ready.")
+            for hap_code, (outputs_ready, missing_outputs) in wf8_outputs_status.items():
+                if not outputs_ready:
+                    print(f"  Haplotype {hap_mapping[hap_code]}: Missing: {', '.join(missing_outputs)}")
+            print(f"Resume again later when Workflow 8 has progressed further.")
+            return {assembly_id: list_metadata[assembly_id]}
+        else:
+            print(f"\n=== Required outputs from all Workflow 8 invocations are ready for {assembly_id}. Preparing Workflow 9 for both haplotypes ===\n")
+    else:
+        # Normal mode: WF8 was just launched, proceed to WF9
+        print(f"Workflow 8 launched for {assembly_id}. Proceeding with Workflow 9.\n")
 
     # Get configuration for workflow 9
     path_script = profile_data.get('path_script', os.path.dirname(__file__))
@@ -1272,11 +1536,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     template_file
                 )
 
-                # Launch workflow
+                # Launch workflow (planemo will block until complete since --no-wait was removed)
                 os.system(command_lines["Workflow_PreCuration"])
-                wait_completion_workflow(list_metadata[assembly_id]["invocation_jsons"]["Workflow_PreCuration"])
 
-                # Get invocation ID
+                # Get invocation ID from completed JSON
                 precuration_json = open(list_metadata[assembly_id]["invocation_jsons"]["Workflow_PreCuration"])
                 res_precuration = json.load(precuration_json)
                 invocation_precuration = res_precuration["tests"][0]["data"]['invocation_details']['details']['invocation_id']
