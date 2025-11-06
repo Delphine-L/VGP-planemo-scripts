@@ -11,6 +11,7 @@ from bioblend.galaxy import GalaxyInstance
 import re
 from collections import defaultdict
 import time
+from datetime import datetime
 import threading
 import subprocess
 import logging
@@ -478,10 +479,42 @@ def poll_until_invocation_complete(gi, invocation_id, workflow_name, assembly_id
 
     for poll_count in range(max_polls):
         try:
+            # Get current timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             summary = gi.invocations.get_invocation_summary(str(invocation_id))
             state = summary.get('populated_state', 'unknown')
 
-            print(f"Poll {poll_count + 1}/{max_polls}: {workflow_name} state = {state}")
+            # Extract job counts from summary
+            jobs = summary.get('jobs', [])
+            total_jobs = len(jobs)
+
+            # Count jobs by state
+            job_states = {}
+            for job in jobs:
+                job_state = job.get('state', 'unknown')
+                job_states[job_state] = job_states.get(job_state, 0) + 1
+
+            completed_jobs = job_states.get('ok', 0)
+            failed_jobs = job_states.get('error', 0) + job_states.get('failed', 0)
+            running_jobs = job_states.get('running', 0)
+            queued_jobs = job_states.get('queued', 0) + job_states.get('new', 0)
+
+            # Build progress string
+            progress_parts = []
+            if completed_jobs > 0:
+                progress_parts.append(f"{completed_jobs} completed")
+            if running_jobs > 0:
+                progress_parts.append(f"{running_jobs} running")
+            if queued_jobs > 0:
+                progress_parts.append(f"{queued_jobs} queued")
+            if failed_jobs > 0:
+                progress_parts.append(f"{failed_jobs} failed")
+
+            progress_str = ", ".join(progress_parts) if progress_parts else "no jobs"
+
+            print(f"Poll {poll_count + 1}/{max_polls} [{timestamp}]: {workflow_name} state = {state}")
+            print(f"  Jobs: {completed_jobs}/{total_jobs} ({progress_str})")
 
             # Check if reached terminal state
             if state in ['ok', 'error', 'failed', 'cancelled']:
@@ -533,6 +566,9 @@ def poll_until_outputs_ready(gi, invocation_id, required_outputs, workflow_name,
 
     for poll_count in range(max_polls):
         try:
+            # Get current timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             # Check if required outputs exist
             outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_id, required_outputs)
 
@@ -540,13 +576,41 @@ def poll_until_outputs_ready(gi, invocation_id, required_outputs, workflow_name,
                 print(f"✓ All required outputs are ready for {workflow_name}!")
                 return (True, [])
             else:
-                print(f"Poll {poll_count + 1}/{max_polls}: Still missing outputs: {', '.join(missing_outputs)}")
+                print(f"Poll {poll_count + 1}/{max_polls} [{timestamp}]: Still missing outputs: {', '.join(missing_outputs)}")
 
-            # Check invocation state for context
+            # Check invocation state and job progress for context
             try:
                 summary = gi.invocations.get_invocation_summary(str(invocation_id))
                 state = summary.get('populated_state', 'unknown')
-                print(f"  Invocation state: {state}")
+
+                # Extract job counts from summary
+                jobs = summary.get('jobs', [])
+                total_jobs = len(jobs)
+
+                # Count jobs by state
+                job_states = {}
+                for job in jobs:
+                    job_state = job.get('state', 'unknown')
+                    job_states[job_state] = job_states.get(job_state, 0) + 1
+
+                completed_jobs = job_states.get('ok', 0)
+                failed_jobs = job_states.get('error', 0) + job_states.get('failed', 0)
+                running_jobs = job_states.get('running', 0)
+                queued_jobs = job_states.get('queued', 0) + job_states.get('new', 0)
+
+                # Build progress string
+                progress_parts = []
+                if completed_jobs > 0:
+                    progress_parts.append(f"{completed_jobs} completed")
+                if running_jobs > 0:
+                    progress_parts.append(f"{running_jobs} running")
+                if queued_jobs > 0:
+                    progress_parts.append(f"{queued_jobs} queued")
+                if failed_jobs > 0:
+                    progress_parts.append(f"{failed_jobs} failed")
+
+                progress_str = ", ".join(progress_parts) if progress_parts else "no jobs"
+                print(f"  Invocation state: {state} | Jobs: {completed_jobs}/{total_jobs} ({progress_str})")
 
                 # If invocation failed, no point in waiting
                 if state in ['failed', 'cancelled', 'error']:
@@ -1197,8 +1261,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
                 return {assembly_id: list_metadata[assembly_id]}
 
-        # Now check if required outputs exist
-        required_wf4_outputs = ['gfa_assembly', 'Estimated Genome size', 'Trimmed Hi-C reads']
+        # Now check if required outputs exist (needed for WF8)
+        required_wf4_outputs = ['usable hap1 gfa', 'usable hap2 gfa', 'Estimated Genome size', 'Trimmed Hi-C reads']
         outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_wf4, required_wf4_outputs)
 
         if not outputs_ready:
