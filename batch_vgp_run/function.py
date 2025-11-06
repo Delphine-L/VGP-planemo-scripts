@@ -906,8 +906,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     # For --resume mode: Check if invocation is complete, poll if needed, then check outputs
     # For normal mode: Just proceed (trust planemo launched successfully)
     if is_resume:
+        print(f"Checking Workflow 1 status for {assembly_id}...")
         # First, check if invocation is in a terminal state
         is_complete, state = check_invocation_complete(gi, invocation_wf1)
+        print(f"Workflow 1 status: {state} (complete: {is_complete})")
 
         if not is_complete:
             # Invocation still running - poll until complete
