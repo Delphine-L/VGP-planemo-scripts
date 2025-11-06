@@ -1800,7 +1800,7 @@ def prepare_yaml_wf4(assembly_id, list_metadata, profile_data):
 def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4, profile_data):
     dic_data_ids=get_datasets_ids(invocation_wf4)
     path_script=profile_data['path_script']
-    with open(path_script+"/templates/wf8_run.sample.yaml", 'r') as sample_file:
+    with open(path_script+"/templates/wf8_run_sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
     pattern = r'\["(.*)"\]' # Matches the fields to replace
     to_fill = re.findall(pattern, filedata)
