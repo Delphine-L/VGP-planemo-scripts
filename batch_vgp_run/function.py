@@ -932,8 +932,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         else:
             print(f"Required outputs from Workflow 1 are ready for {assembly_id}. Proceeding with Workflow 4.\n")
     else:
-        # Normal mode: WF1 was just launched, proceed to WF4
-        print(f"Workflow 1 launched for {assembly_id}. Proceeding with Workflow 4.\n")
+        # Normal mode: WF1 ready (either found or just launched), proceed to WF4
+        print(f"Workflow 1 ready for {assembly_id}. Proceeding with Workflow 4.\n")
 
     # Try to get Workflow 4 invocation
     invocation_wf4 = None
@@ -1033,7 +1033,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
     # === WORKFLOW 0 (Mitochondrial) - runs right after workflow 4 is launched (doesn't wait for completion) ===
-    print(f"Workflow 4 for {assembly_id} has been launched. Proceeding with Workflow 0.\n")
+    print(f"Workflow 4 ready for {assembly_id}. Proceeding with Workflow 0.\n")
 
     # Try to get Workflow 0 invocation
     invocation_wf0 = None
@@ -1138,8 +1138,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         else:
             print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
     else:
-        # Normal mode: WF4 was just launched, proceed to WF8
-        print(f"\n=== Workflow 4 launched for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
+        # Normal mode: WF4 ready (either found or just launched), proceed to WF8
+        print(f"\n=== Workflow 4 ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
 
     # Try to get invocations for both haplotypes
     wf8_invocations = {}
@@ -1315,8 +1315,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         else:
             print(f"\n=== Required outputs from all Workflow 8 invocations are ready for {assembly_id}. Preparing Workflow 9 for both haplotypes ===\n")
     else:
-        # Normal mode: WF8 was just launched, proceed to WF9
-        print(f"Workflow 8 launched for {assembly_id}. Proceeding with Workflow 9.\n")
+        # Normal mode: WF8 ready (either found or just launched), proceed to WF9
+        print(f"Workflow 8 ready for {assembly_id}. Proceeding with Workflow 9.\n")
 
     # Get configuration for workflow 9
     path_script = profile_data.get('path_script', os.path.dirname(__file__))
