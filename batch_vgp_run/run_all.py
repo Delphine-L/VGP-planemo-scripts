@@ -40,6 +40,7 @@ def main():
     parser.add_argument('--retry-failed', required=False, action='store_true',  help='When used with --resume, automatically retry any failed or cancelled invocations by launching them again.')
     parser.add_argument('--fetch-urls', required=False, action='store_true',  help='Fetch GenomeArk file URLs before running workflows. Use this when the input table only contains Species and Assembly columns (no file paths).')
     parser.add_argument('--sync-metadata', required=False, action='store_true',  help='Sync metadata with Galaxy histories: check all invocations, update metadata with latest status and invocation IDs, but do not launch any workflows. Useful for tidying up metadata after manual interventions or to capture background workflow completions.')
+    parser.add_argument('--download-reports', required=False, action='store_true',  help='Download PDF reports for completed invocations when using --resume or --sync-metadata. Only works for invocations in terminal states (ok, failed, cancelled). This feature can be unreliable, so errors are logged but do not stop execution.')
     parser.add_argument('-q', '--quiet', required=False, action='store_true',  help='Quiet mode: only show warnings and errors, suppress informational messages.')
     args = parser.parse_args()
 
@@ -57,6 +58,10 @@ def main():
     # Validate that --fetch-urls is not used with --resume or --sync-metadata
     if args.fetch_urls and (args.resume or args.sync_metadata):
         raise SystemExit("Error: --fetch-urls cannot be used with --resume or --sync-metadata options.")
+
+    # Validate that --download-reports is only used with --resume or --sync-metadata
+    if args.download_reports and not (args.resume or args.sync_metadata):
+        raise SystemExit("Error: --download-reports can only be used with --resume or --sync-metadata options.")
 
     # Fetch GenomeArk URLs if requested
     if args.fetch_urls:
@@ -240,7 +245,10 @@ def main():
 
         # Pre-fetch all invocations from histories to minimize API calls during threading
         suffix_run = profile_data['Suffix']
-        function.batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run)
+        if args.download_reports:
+            print("\n📄 Report download enabled - will attempt to download PDF reports for completed invocations")
+            print("   (This feature can be unreliable; errors are logged but won't stop execution)\n")
+        function.batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run, download_reports=args.download_reports)
 
         # If sync-metadata mode, save and exit without launching workflows
         if args.sync_metadata:
