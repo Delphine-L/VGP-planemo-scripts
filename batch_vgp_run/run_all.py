@@ -39,19 +39,24 @@ def main():
     parser.add_argument('-r', '--resume', required=False, action='store_true',  help='Resume a previous run using the metadata json file produced at the end of the run_all.py script and found in the metadata directory.')
     parser.add_argument('--retry-failed', required=False, action='store_true',  help='When used with --resume, automatically retry any failed or cancelled invocations by launching them again.')
     parser.add_argument('--fetch-urls', required=False, action='store_true',  help='Fetch GenomeArk file URLs before running workflows. Use this when the input table only contains Species and Assembly columns (no file paths).')
+    parser.add_argument('--sync-metadata', required=False, action='store_true',  help='Sync metadata with Galaxy histories: check all invocations, update metadata with latest status and invocation IDs, but do not launch any workflows. Useful for tidying up metadata after manual interventions or to capture background workflow completions.')
     parser.add_argument('-q', '--quiet', required=False, action='store_true',  help='Quiet mode: only show warnings and errors, suppress informational messages.')
     args = parser.parse_args()
 
     # Initialize logging with quiet flag
     function.setup_logging(quiet=args.quiet)
 
+    # Validate mutually exclusive options
+    if args.resume and args.sync_metadata:
+        raise SystemExit("Error: --resume and --sync-metadata are mutually exclusive. Use --resume to launch workflows, or --sync-metadata to only update metadata.")
+
     # Validate that --retry-failed is only used with --resume
     if args.retry_failed and not args.resume:
         raise SystemExit("Error: --retry-failed can only be used with --resume option.")
 
-    # Validate that --fetch-urls is not used with --resume
-    if args.fetch_urls and args.resume:
-        raise SystemExit("Error: --fetch-urls cannot be used with --resume option.")
+    # Validate that --fetch-urls is not used with --resume or --sync-metadata
+    if args.fetch_urls and (args.resume or args.sync_metadata):
+        raise SystemExit("Error: --fetch-urls cannot be used with --resume or --sync-metadata options.")
 
     # Fetch GenomeArk URLs if requested
     if args.fetch_urls:
@@ -118,7 +123,7 @@ def main():
 
     profile_data['path_script']=path_script
 
-    if args.resume:
+    if args.resume or args.sync_metadata:
         metadata_file=profile_data['Metadata_directory']+'metadata_run'+suffix_run+'.json'
         if not os.path.isfile(metadata_file):
             raise SystemExit("Error: The metadata file "+metadata_file+" does not exist. Please check the path and filename.")
@@ -158,11 +163,18 @@ def main():
                             inv_details = gi.invocations.show_invocation(invocation_id)
                             state = inv_details.get('state', 'unknown')
                             if state in ['failed', 'cancelled']:
+                                # For Workflow 0 failures, check if it's due to no mitochondrial data
+                                error_detail = state
+                                if workflow_key == 'Workflow_0':
+                                    is_no_mito, mito_error_msg = function.check_mitohifi_failure(gi, invocation_id)
+                                    error_detail = mito_error_msg
+
                                 failed_invocations.append({
                                     'species': species_id,
                                     'workflow': workflow_key,
                                     'invocation': invocation_id,
-                                    'state': state
+                                    'state': state,
+                                    'error_detail': error_detail
                                 })
                         except Exception as e:
                             print(f"Warning: Could not check invocation {invocation_id} for {species_id} {workflow_key}: {e}")
@@ -172,11 +184,21 @@ def main():
                 for workflow_key, inv_list in list_metadata[species_id]['failed_invocations'].items():
                     for invocation_id in inv_list:
                         # Add to failed list (these are already known to be failed)
+                        # For Workflow 0, try to get diagnostic info
+                        error_detail = 'failed (marked)'
+                        if workflow_key == 'Workflow_0':
+                            try:
+                                is_no_mito, mito_error_msg = function.check_mitohifi_failure(gi, invocation_id)
+                                error_detail = mito_error_msg
+                            except:
+                                error_detail = 'failed (marked)'
+
                         failed_invocations.append({
                             'species': species_id,
                             'workflow': workflow_key,
                             'invocation': invocation_id,
-                            'state': 'failed (marked)'
+                            'state': 'failed (marked)',
+                            'error_detail': error_detail
                         })
 
         if failed_invocations:
@@ -187,7 +209,11 @@ def main():
                 print("⚠  WARNING: Found failed/cancelled invocations:")
             print(f"{'='*60}")
             for failed in failed_invocations:
-                print(f"  - {failed['species']} {failed['workflow']}: {failed['state']} (invocation: {failed['invocation']})")
+                error_info = failed.get('error_detail', failed['state'])
+                print(f"  - {failed['species']} {failed['workflow']}: {error_info}")
+                if failed['workflow'] == 'Workflow_0' and 'no mitochondrial' in error_info.lower():
+                    print(f"    ℹ️  This is expected if the sample has no mitochondrial sequences")
+                print(f"    (invocation: {failed['invocation']})")
             print(f"{'='*60}")
 
             if args.retry_failed:
@@ -215,6 +241,37 @@ def main():
         # Pre-fetch all invocations from histories to minimize API calls during threading
         suffix_run = profile_data['Suffix']
         function.batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run)
+
+        # If sync-metadata mode, save and exit without launching workflows
+        if args.sync_metadata:
+            print("\n" + "="*60)
+            print("Sync metadata mode: Metadata has been updated from Galaxy")
+            print("="*60)
+            print("\nSaving updated metadata...")
+
+            # Save main metadata file
+            with open(profile_data['Metadata_directory']+'metadata_run'+suffix_run+'.json', "w") as json_file:
+                json.dump(list_metadata, json_file, indent=4)
+            print(f"✓ Saved: {profile_data['Metadata_directory']}metadata_run{suffix_run}.json")
+
+            # Clean up per-species metadata files (data now in main file)
+            for species_id in list_metadata.keys():
+                species_metadata_file = f"{profile_data['Metadata_directory']}metadata_{species_id}_run{suffix_run}.json"
+                if os.path.exists(species_metadata_file):
+                    os.remove(species_metadata_file)
+                    print(f"✓ Cleaned up: {species_metadata_file}")
+
+            print("\n" + "="*60)
+            print("Metadata sync complete!")
+            print("="*60)
+            print("\nSummary of invocations found:")
+            for species_id in list_metadata.keys():
+                print(f"\n{species_id}:")
+                for wf_key, inv_id in list_metadata[species_id].get('invocations', {}).items():
+                    if inv_id and inv_id != 'NA':
+                        print(f"  {wf_key}: {inv_id}")
+
+            return  # Exit without processing workflows
 
     else:
         infos=pandas.read_csv(args.species, header=0, sep="\t")

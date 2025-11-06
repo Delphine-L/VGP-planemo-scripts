@@ -248,6 +248,58 @@ def check_invocation_complete(gi, invocation_id):
         print(f"  Warning: Could not check status for invocation {invocation_id}: {e}")
         return (False, 'error')
 
+def check_mitohifi_failure(gi, invocation_id):
+    """
+    Check if a Workflow 0 (mitochondrial) failure is due to no mitochondrial reads.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        invocation_id (str): Invocation ID to check
+
+    Returns:
+        tuple: (is_no_mito_data: bool, error_message: str)
+               is_no_mito_data: True if failure is due to no mitochondrial reads
+               error_message: Descriptive error message
+    """
+    try:
+        invocation = gi.invocations.show_invocation(str(invocation_id))
+
+        # Find the MitoHifi step in the workflow
+        steps = invocation.get('steps', [])
+        for step in steps:
+            step_jobs = step.get('jobs', [])
+            for job in step_jobs:
+                # Check if this is a MitoHifi step (look for tool name or step name)
+                tool_id = job.get('tool_id', '')
+                if 'mitohifi' in tool_id.lower():
+                    job_id = job.get('id')
+                    if job_id:
+                        # Get detailed job information including stdout/stderr
+                        try:
+                            job_details = gi.jobs.show_job(job_id, full_details=True)
+
+                            # Check stdout for "Total number of mapped reads: 0"
+                            stdout = job_details.get('stdout', '')
+                            stderr = job_details.get('stderr', '')
+
+                            no_mapped_reads = 'Total number of mapped reads: 0' in stdout
+                            hifiasm_error = 'An error may have occurred when assembling reads with HiFiasm.' in stderr
+
+                            if no_mapped_reads and hifiasm_error:
+                                return (True, "Reads probably contain no mitochondrial data (MitoHifi found 0 mapped reads)")
+                            elif no_mapped_reads:
+                                return (True, "No mitochondrial reads found (MitoHifi mapped 0 reads)")
+
+                        except Exception as e:
+                            log_warning(f"Could not retrieve job details for MitoHifi step: {e}")
+
+        # MitoHifi step found but no specific error pattern
+        return (False, "Invocation in error (unknown MitoHifi issue)")
+
+    except Exception as e:
+        log_warning(f"Could not check MitoHifi failure pattern: {e}")
+        return (False, f"Invocation in error (could not diagnose: {e})")
+
 def check_required_outputs_exist(gi, invocation_id, required_outputs):
     """
     Check if specific required outputs exist in a workflow invocation.
@@ -1210,20 +1262,35 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
     # If not found, prepare and launch (non-blocking for other workflows)
     if not invocation_wf0 or invocation_wf0 == 'NA':
+        # When resuming, check if JSON exists from previous background launch
         if is_resume:
-            print(f"No previous run found for Workflow 0. Preparing and launching...")
-        else:
-            print(f"Preparing and launching Workflow 0 for {assembly_id}...")
-        prepare_yaml_wf0(assembly_id, list_metadata, wf4_inv, profile_data)
-        os.system(command_lines["Workflow_0"])
-        print(f"Workflow 0 for {assembly_id} ({species_name}) has been launched.\n")
+            wf0_json_path = list_metadata[assembly_id]["invocation_jsons"]["Workflow_0"]
+            if os.path.exists(wf0_json_path):
+                try:
+                    with open(wf0_json_path) as wf0json:
+                        reswf0 = json.load(wf0json)
+                    invocation_wf0 = reswf0["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                    list_metadata[assembly_id]["invocations"]["Workflow_0"] = invocation_wf0
+                    print(f"Workflow 0 invocation found in JSON file: {invocation_wf0}\n")
+                except (json.JSONDecodeError, KeyError) as e:
+                    print(f"Warning: Could not parse Workflow 0 JSON file: {e}")
+                    print(f"Will re-launch Workflow 0...")
+                    invocation_wf0 = None
+            else:
+                print(f"Workflow 0 JSON not found. Workflow may still be initializing from previous run.")
+                print(f"Will check again on next resume.\n")
+                invocation_wf0 = None
 
-        # Try to get from newly created JSON
-        if os.path.exists(list_metadata[assembly_id]["invocation_jsons"]["Workflow_0"]):
-            wf0json = open(list_metadata[assembly_id]["invocation_jsons"]["Workflow_0"])
-            reswf0 = json.load(wf0json)
-            invocation_wf0 = reswf0["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-            list_metadata[assembly_id]["invocations"]["Workflow_0"] = invocation_wf0
+        # Launch if still not found
+        if not invocation_wf0 or invocation_wf0 == 'NA':
+            if is_resume:
+                print(f"No previous run found for Workflow 0. Preparing and launching...")
+            else:
+                print(f"Preparing and launching Workflow 0 for {assembly_id}...")
+            prepare_yaml_wf0(assembly_id, list_metadata, wf4_inv, profile_data)
+            os.system(command_lines["Workflow_0"] + " &")
+            print(f"Workflow 0 for {assembly_id} ({species_name}) has been launched in background.\n")
+            # Don't wait for JSON since it's running in background
 
     # Store dataset IDs for Workflow 0 if invocation exists
     if invocation_wf0 and invocation_wf0 != 'NA':
