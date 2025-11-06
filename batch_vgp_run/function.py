@@ -801,13 +801,22 @@ def batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix
                     invocation_id = fetch_invocation_from_history(gi, history_id, search_params, cache=cache)
 
                 if invocation_id:
+                    # Check if this invocation is in a failed state
+                    # (Important for --retry-failed: don't re-add failed invocations)
+                    inv_details = cache['invocations'].get(invocation_id)
+                    if inv_details:
+                        inv_state = inv_details.get('state', 'unknown')
+                        if inv_state in ['failed', 'cancelled', 'error']:
+                            # Don't re-add failed invocations - leave as 'NA' so they can be retried
+                            print(f"    Skipping {workflow_key}: invocation {invocation_id} is in '{inv_state}' state")
+                            continue
+
                     list_metadata[species_id]['invocations'][workflow_key] = invocation_id
                     print(f"    Found {workflow_key}: {invocation_id}")
 
                     # Get dataset IDs for this invocation
                     try:
                         # Use cached invocation details (no new API call!)
-                        inv_details = cache['invocations'].get(invocation_id)
                         if inv_details:
                             dataset_ids = get_datasets_ids(inv_details)
                             list_metadata[species_id]['dataset_ids'][workflow_key] = dataset_ids
@@ -1358,46 +1367,26 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     }
 
     # === WORKFLOW 8 (Both Haplotypes in Parallel) ===
-    # For --resume mode: Check if invocation is complete, poll if needed, then check outputs
-    # For normal mode: Just proceed (trust planemo launched successfully)
+    # First, load per-haplotype metadata if resuming (crash recovery)
     if is_resume:
-        # First, check if invocation is in a terminal state
-        is_complete, state = check_invocation_complete(gi, invocation_wf4)
+        for hap_code in ['hap1', 'hap2']:
+            wf8_key = f"Workflow_8_{hap_code}"
+            hap_metadata_file = f"{profile_data['Metadata_directory']}metadata_{assembly_id}_{wf8_key}_run{suffix_run}.json"
 
-        if not is_complete:
-            # Invocation still running - poll until complete
-            print(f"Workflow 4 for {assembly_id} is still running (state: {state})")
-            poll_interval = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
-            is_complete, state = poll_until_invocation_complete(gi, invocation_wf4, "Workflow 4", assembly_id, poll_interval=poll_interval)
+            if os.path.exists(hap_metadata_file):
+                try:
+                    with open(hap_metadata_file, 'r') as json_file:
+                        hap_metadata = json.load(json_file)
 
-            if not is_complete or state not in ['ok']:
-                print(f"Workflow 4 for {assembly_id} did not complete successfully (state: {state})")
-                if state in ['failed', 'cancelled', 'error']:
-                    mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
-                return {assembly_id: list_metadata[assembly_id]}
+                    invocation_id = hap_metadata.get('invocation_id')
+                    if invocation_id and list_metadata[assembly_id]["invocations"].get(wf8_key, 'NA') == 'NA':
+                        # Restore invocation from per-haplotype metadata
+                        list_metadata[assembly_id]["invocations"][wf8_key] = invocation_id
+                        print(f"Restored {wf8_key} invocation from per-haplotype metadata: {invocation_id}")
+                except Exception as e:
+                    print(f"Warning: Could not load per-haplotype metadata for {wf8_key}: {e}")
 
-        # Now check if required outputs exist (needed for WF8)
-        required_wf4_outputs = ['usable hap1 gfa', 'usable hap2 gfa', 'Estimated Genome size', 'Trimmed Hi-C reads']
-        outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_wf4, required_wf4_outputs)
-
-        if not outputs_ready:
-            print(f"Workflow 4 for {assembly_id}: Required outputs for WF8 not yet ready. Missing: {', '.join(missing_outputs)}")
-            # Poll until outputs are ready
-            poll_interval = profile_data.get('poll_interval_outputs', 60) * 60  # Convert minutes to seconds (default: 1 hour)
-            outputs_ready, missing_outputs = poll_until_outputs_ready(
-                gi, invocation_wf4, required_wf4_outputs,
-                "Workflow 4", assembly_id, poll_interval=poll_interval
-            )
-
-            if not outputs_ready:
-                print(f"Workflow 4 for {assembly_id}: Required outputs not ready after polling.")
-                print(f"Resume again later when Workflow 4 has progressed further.")
-                return {assembly_id: list_metadata[assembly_id]}
-
-        print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
-    else:
-        # Normal mode: WF4 ready (either found or just launched), proceed to WF8
-        print(f"\n=== Workflow 4 ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
+    # Check if WF8 invocations already exist (don't need to check WF4 if so)
 
     # Try to get invocations for both haplotypes
     wf8_invocations = {}
@@ -1451,63 +1440,137 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         else:
             wf8_invocations[hap_code] = invocation_wf8
 
+    # Only check WF4 status if we need to launch WF8 (saves time if WF8 already exists)
+    if wf8_to_launch:
+        # For --resume mode: Check if WF4 is complete and outputs are ready before launching WF8
+        if is_resume:
+            # First, check if invocation is in a terminal state
+            is_complete, state = check_invocation_complete(gi, invocation_wf4)
+
+            if not is_complete:
+                # Invocation still running - poll until complete
+                print(f"Workflow 4 for {assembly_id} is still running (state: {state})")
+                poll_interval = profile_data.get('poll_interval_other', 60) * 60  # Convert minutes to seconds
+                is_complete, state = poll_until_invocation_complete(gi, invocation_wf4, "Workflow 4", assembly_id, poll_interval=poll_interval)
+
+                if not is_complete or state not in ['ok']:
+                    print(f"Workflow 4 for {assembly_id} did not complete successfully (state: {state})")
+                    if state in ['failed', 'cancelled', 'error']:
+                        mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
+                    return {assembly_id: list_metadata[assembly_id]}
+
+            # Now check if required outputs exist (needed for WF8)
+            required_wf4_outputs = ['usable hap1 gfa', 'usable hap2 gfa', 'Estimated Genome size', 'Trimmed Hi-C reads']
+            outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_wf4, required_wf4_outputs)
+
+            if not outputs_ready:
+                print(f"Workflow 4 for {assembly_id}: Required outputs for WF8 not yet ready. Missing: {', '.join(missing_outputs)}")
+                # Poll until outputs are ready
+                poll_interval = profile_data.get('poll_interval_outputs', 60) * 60  # Convert minutes to seconds (default: 1 hour)
+                outputs_ready, missing_outputs = poll_until_outputs_ready(
+                    gi, invocation_wf4, required_wf4_outputs,
+                    "Workflow 4", assembly_id, poll_interval=poll_interval
+                )
+
+                if not outputs_ready:
+                    print(f"Workflow 4 for {assembly_id}: Required outputs not ready after polling.")
+                    print(f"Resume again later when Workflow 4 has progressed further.")
+                    return {assembly_id: list_metadata[assembly_id]}
+
+            print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
+        else:
+            # Normal mode: WF4 ready (either found or just launched), proceed to WF8
+            print(f"\n=== Workflow 4 ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
+
     # Prepare YAML for workflows that need to be launched
     if wf8_to_launch:
         for hap_code in wf8_to_launch:
             prepare_yaml_wf8(assembly_id, list_metadata, wf4_inv, profile_data, hap_code)
 
-    # Launch workflows IN PARALLEL (both haplotypes simultaneously)
+    # Launch workflows in parallel using threads (each thread waits for planemo to complete)
     if wf8_to_launch:
         print(f"Launching Workflow 8 for {assembly_id} ({len(wf8_to_launch)} haplotypes in parallel)...")
 
-        # Launch all haplotypes in background
-        for hap_code in wf8_to_launch:
-            haplotype_name = hap_mapping[hap_code]
-            wf8_key = f"Workflow_8_{hap_code}"
+        # Create threads for each haplotype
+        wf8_threads = []
+        wf8_thread_results = {}  # Store results from each thread
+
+        def launch_wf8_haplotype(hap_code, haplotype_name, wf8_key):
+            """Thread function to launch a single WF8 haplotype"""
+            result = {'success': False, 'invocation_id': None}
 
             if wf8_key in command_lines:
-                # Launch in background with &
-                os.system(command_lines[wf8_key] + " &")
-                print(f"  - Workflow 8 ({haplotype_name}) launched in background")
+                print(f"  Starting Workflow 8 ({haplotype_name}) in thread...")
+                # Launch WITHOUT & - this blocks until planemo finishes
+                os.system(command_lines[wf8_key])
+                print(f"  ✓ Workflow 8 ({haplotype_name}) planemo command completed")
+
+                # Immediately read JSON and save per-haplotype metadata
+                wf8_json_path = list_metadata[assembly_id]["invocation_jsons"].get(wf8_key)
+                if wf8_json_path and os.path.exists(wf8_json_path):
+                    try:
+                        with open(wf8_json_path) as wf8json:
+                            reswf8 = json.load(wf8json)
+                        invocation_id = reswf8["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                        result['invocation_id'] = invocation_id
+                        result['success'] = True
+
+                        # Save per-haplotype metadata immediately
+                        haplotype_metadata = {
+                            'invocation_id': invocation_id,
+                            'workflow_key': wf8_key,
+                            'timestamp': datetime.now().isoformat(),
+                            'state': 'launched'
+                        }
+                        hap_metadata_file = f"{profile_data['Metadata_directory']}metadata_{assembly_id}_{wf8_key}_run{suffix_run}.json"
+                        with open(hap_metadata_file, 'w') as json_file:
+                            json.dump(haplotype_metadata, json_file, indent=4)
+                        print(f"  ✓ Saved per-haplotype metadata: {hap_metadata_file}")
+
+                    except (json.JSONDecodeError, KeyError, IOError) as e:
+                        print(f"  ⚠ Warning: Could not process Workflow 8 ({haplotype_name}) result: {e}")
+                else:
+                    print(f"  ⚠ Warning: JSON file not found for Workflow 8 ({haplotype_name}): {wf8_json_path}")
             else:
                 print(f"⚠ ERROR: Command line for {wf8_key} not found in command_lines dictionary!")
                 print(f"  Available keys: {list(command_lines.keys())}")
-                print(f"  This workflow will not be launched.")
 
-        # Wait for all JSON files to be written
-        print(f"\nWaiting for invocation JSON files from both haplotypes...")
-        max_retries = 10
-        retry_interval = 3  # seconds
+            wf8_thread_results[hap_code] = result
 
+        # Start all haplotype threads
         for hap_code in wf8_to_launch:
             haplotype_name = hap_mapping[hap_code]
             wf8_key = f"Workflow_8_{hap_code}"
-            wf8_json_path = list_metadata[assembly_id]["invocation_jsons"].get(wf8_key)
 
-            if wf8_json_path:
-                invocation_wf8 = None
-                for attempt in range(max_retries):
-                    if os.path.exists(wf8_json_path):
-                        try:
-                            with open(wf8_json_path) as wf8json:
-                                reswf8 = json.load(wf8json)
-                            invocation_wf8 = reswf8["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-                            list_metadata[assembly_id]["invocations"][wf8_key] = invocation_wf8
-                            wf8_invocations[hap_code] = invocation_wf8
-                            print(f"✓ Retrieved invocation ID for Workflow 8 ({haplotype_name}): {invocation_wf8}")
-                            break
-                        except (json.JSONDecodeError, KeyError) as e:
-                            if attempt < max_retries - 1:
-                                print(f"  Waiting for Workflow 8 ({haplotype_name}) invocation data (attempt {attempt+1}/{max_retries})...")
-                                time.sleep(retry_interval)
-                            else:
-                                print(f"  Warning: Could not parse Workflow 8 ({haplotype_name}) JSON after {max_retries} attempts")
-                    else:
-                        if attempt < max_retries - 1:
-                            print(f"  Waiting for Workflow 8 ({haplotype_name}) JSON file (attempt {attempt+1}/{max_retries})...")
-                            time.sleep(retry_interval)
+            thread = threading.Thread(
+                target=launch_wf8_haplotype,
+                args=(hap_code, haplotype_name, wf8_key),
+                daemon=False
+            )
+            thread.start()
+            wf8_threads.append(thread)
 
-        print(f"Workflow 8 launch complete for {assembly_id}\n")
+        # Wait for all threads to complete
+        print(f"  Waiting for all Workflow 8 haplotypes to complete...")
+        for thread in wf8_threads:
+            thread.join()
+
+        print(f"✓ All Workflow 8 haplotypes completed for {assembly_id}\n")
+
+        # Merge thread results into main metadata
+        print(f"Merging haplotype results into species metadata...")
+        for hap_code in wf8_to_launch:
+            result = wf8_thread_results.get(hap_code, {})
+            if result.get('success') and result.get('invocation_id'):
+                wf8_key = f"Workflow_8_{hap_code}"
+                invocation_id = result['invocation_id']
+                list_metadata[assembly_id]["invocations"][wf8_key] = invocation_id
+                wf8_invocations[hap_code] = invocation_id
+                print(f"✓ Merged Workflow 8 ({hap_mapping[hap_code]}): {invocation_id}")
+            else:
+                print(f"⚠ Warning: Workflow 8 ({hap_mapping[hap_code]}) did not complete successfully")
+
+        print(f"Workflow 8 processing complete for {assembly_id}\n")
 
     # Store dataset IDs for Workflow 8 (both haplotypes)
     for hap_code, inv_id in wf8_invocations.items():
@@ -1596,6 +1659,25 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         template_file = path_script + "/templates/wf9_run_sample_fcs.yaml"
     else:
         template_file = path_script + "/templates/wf9_run_sample_legacy.yaml"
+
+    # First, load per-haplotype metadata if resuming (crash recovery)
+    if is_resume:
+        for hap_code in ['hap1', 'hap2']:
+            wf9_key = f"Workflow_9_{hap_code}"
+            hap_metadata_file = f"{profile_data['Metadata_directory']}metadata_{assembly_id}_{wf9_key}_run{suffix_run}.json"
+
+            if os.path.exists(hap_metadata_file):
+                try:
+                    with open(hap_metadata_file, 'r') as json_file:
+                        hap_metadata = json.load(json_file)
+
+                    invocation_id = hap_metadata.get('invocation_id')
+                    if invocation_id and list_metadata[assembly_id]["invocations"].get(wf9_key, 'NA') == 'NA':
+                        # Restore invocation from per-haplotype metadata
+                        list_metadata[assembly_id]["invocations"][wf9_key] = invocation_id
+                        print(f"Restored {wf9_key} invocation from per-haplotype metadata: {invocation_id}")
+                except Exception as e:
+                    print(f"Warning: Could not load per-haplotype metadata for {wf9_key}: {e}")
 
     # Try to get invocations for both haplotypes
     wf9_invocations = {}
@@ -1696,57 +1778,90 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 taxon_ID=taxon_id
             )
 
-    # Launch workflows IN PARALLEL (both haplotypes simultaneously)
+    # Launch workflows in parallel using threads (each thread waits for planemo to complete)
     if wf9_to_launch:
         print(f"Launching Workflow 9 for {assembly_id} ({len(wf9_to_launch)} haplotypes in parallel)...")
 
-        # Launch all haplotypes in background
-        for hap_code in wf9_to_launch:
-            haplotype_name = hap_mapping[hap_code]
-            wf9_key = f"Workflow_9_{hap_code}"
+        # Create threads for each haplotype
+        wf9_threads = []
+        wf9_thread_results = {}  # Store results from each thread
+
+        def launch_wf9_haplotype(hap_code, haplotype_name, wf9_key):
+            """Thread function to launch a single WF9 haplotype"""
+            result = {'success': False, 'invocation_id': None}
 
             if wf9_key in command_lines:
-                # Launch in background with &
-                os.system(command_lines[wf9_key] + " &")
-                print(f"  - Workflow 9 ({haplotype_name}) launched in background")
+                print(f"  Starting Workflow 9 ({haplotype_name}) in thread...")
+                # Launch WITHOUT & - this blocks until planemo finishes
+                os.system(command_lines[wf9_key])
+                print(f"  ✓ Workflow 9 ({haplotype_name}) planemo command completed")
+
+                # Immediately read JSON and save per-haplotype metadata
+                wf9_json_path = list_metadata[assembly_id]["invocation_jsons"].get(wf9_key)
+                if wf9_json_path and os.path.exists(wf9_json_path):
+                    try:
+                        with open(wf9_json_path) as wf9json:
+                            reswf9 = json.load(wf9json)
+                        invocation_id = reswf9["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                        result['invocation_id'] = invocation_id
+                        result['success'] = True
+
+                        # Save per-haplotype metadata immediately
+                        haplotype_metadata = {
+                            'invocation_id': invocation_id,
+                            'workflow_key': wf9_key,
+                            'timestamp': datetime.now().isoformat(),
+                            'state': 'launched'
+                        }
+                        hap_metadata_file = f"{profile_data['Metadata_directory']}metadata_{assembly_id}_{wf9_key}_run{suffix_run}.json"
+                        with open(hap_metadata_file, 'w') as json_file:
+                            json.dump(haplotype_metadata, json_file, indent=4)
+                        print(f"  ✓ Saved per-haplotype metadata: {hap_metadata_file}")
+
+                    except (json.JSONDecodeError, KeyError, IOError) as e:
+                        print(f"  ⚠ Warning: Could not process Workflow 9 ({haplotype_name}) result: {e}")
+                else:
+                    print(f"  ⚠ Warning: JSON file not found for Workflow 9 ({haplotype_name}): {wf9_json_path}")
             else:
                 print(f"⚠ ERROR: Command line for {wf9_key} not found in command_lines dictionary!")
                 print(f"  Available keys: {list(command_lines.keys())}")
 
-        # Wait for all JSON files to be written
-        print(f"\nWaiting for invocation JSON files from both haplotypes...")
-        max_retries = 10
-        retry_interval = 3  # seconds
+            wf9_thread_results[hap_code] = result
 
+        # Start all haplotype threads
         for hap_code in wf9_to_launch:
             haplotype_name = hap_mapping[hap_code]
             wf9_key = f"Workflow_9_{hap_code}"
-            wf9_json_path = list_metadata[assembly_id]["invocation_jsons"].get(wf9_key)
 
-            if wf9_json_path:
-                invocation_wf9 = None
-                for attempt in range(max_retries):
-                    if os.path.exists(wf9_json_path):
-                        try:
-                            with open(wf9_json_path) as wf9json:
-                                reswf9 = json.load(wf9json)
-                            invocation_wf9 = reswf9["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-                            list_metadata[assembly_id]["invocations"][wf9_key] = invocation_wf9
-                            wf9_invocations[hap_code] = invocation_wf9
-                            print(f"✓ Retrieved invocation ID for Workflow 9 ({haplotype_name}): {invocation_wf9}")
-                            break
-                        except (json.JSONDecodeError, KeyError) as e:
-                            if attempt < max_retries - 1:
-                                print(f"  Waiting for Workflow 9 ({haplotype_name}) invocation data (attempt {attempt+1}/{max_retries})...")
-                                time.sleep(retry_interval)
-                            else:
-                                print(f"  Warning: Could not parse Workflow 9 ({haplotype_name}) JSON after {max_retries} attempts")
-                    else:
-                        if attempt < max_retries - 1:
-                            print(f"  Waiting for Workflow 9 ({haplotype_name}) JSON file (attempt {attempt+1}/{max_retries})...")
-                            time.sleep(retry_interval)
+            thread = threading.Thread(
+                target=launch_wf9_haplotype,
+                args=(hap_code, haplotype_name, wf9_key),
+                daemon=False
+            )
+            thread.start()
+            wf9_threads.append(thread)
 
-        print(f"Workflow 9 launch complete for {assembly_id}\n")
+        # Wait for all threads to complete
+        print(f"  Waiting for all Workflow 9 haplotypes to complete...")
+        for thread in wf9_threads:
+            thread.join()
+
+        print(f"✓ All Workflow 9 haplotypes completed for {assembly_id}\n")
+
+        # Merge thread results into main metadata
+        print(f"Merging haplotype results into species metadata...")
+        for hap_code in wf9_to_launch:
+            result = wf9_thread_results.get(hap_code, {})
+            if result.get('success') and result.get('invocation_id'):
+                wf9_key = f"Workflow_9_{hap_code}"
+                invocation_id = result['invocation_id']
+                list_metadata[assembly_id]["invocations"][wf9_key] = invocation_id
+                wf9_invocations[hap_code] = invocation_id
+                print(f"✓ Merged Workflow 9 ({hap_mapping[hap_code]}): {invocation_id}")
+            else:
+                print(f"⚠ Warning: Workflow 9 ({hap_mapping[hap_code]}) did not complete successfully")
+
+        print(f"Workflow 9 processing complete for {assembly_id}\n")
 
     # Store dataset IDs for Workflow 9 (both haplotypes)
     for hap_code, inv_id in wf9_invocations.items():
