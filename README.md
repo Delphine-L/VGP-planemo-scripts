@@ -128,14 +128,20 @@ python batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> --add -
 
 - **Fully automated**: Runs all workflows in the correct dependency order
 - **Automatic polling**: Continuously monitors workflow completion status and automatically launches the next workflow (configurable polling intervals)
+- **Smart output detection**: Polls for specific WF4 outputs before launching WF8, ensuring all required datasets are ready
+- **Parallel haplotype processing**: WF8 and WF9 launch both haplotypes simultaneously for 2x faster execution
+- **Enhanced progress tracking**: Polling messages show timestamps and detailed job progress (e.g., "12/22 completed, 5 running, 5 queued")
 - **Automatic URL fetching**: Optional `--fetch-urls` flag to automatically fetch GenomeArk file paths
-- **Parallel processing**: Process multiple species concurrently (default: 3 species)
+- **Parallel species processing**: Process multiple species concurrently (default: 3 species)
 - **Smart resuming**: Automatically recovers invocation data from Galaxy history if JSON files are missing
+- **Metadata sync mode**: `--sync-metadata` option to update metadata without launching workflows (ideal for cleanup)
+- **Report downloads**: `--download-reports` option to automatically download PDF reports during resume/sync
 - **Incremental metadata saving**: Per-species metadata files preserve progress at each workflow checkpoint
 - **Failed invocation detection**: Automatically detects and reports failed workflows on resume
+- **Intelligent error diagnosis**: Detects WF0 MitoHifi failures due to missing mitochondrial data vs real errors
 - **Automatic retry**: Optional `--retry-failed` flag to re-launch failed workflows
 - **Hi-C trimming auto-detection**: Automatically configures trimming based on Hi-C technology (Arima/Dovetail)
-- **Non-blocking execution**: Uses `--no_wait` flag to avoid long-running terminal sessions
+- **Non-blocking execution**: WF0 runs in background; uses `--no_wait` flag to avoid long-running terminal sessions
 - **Stateless design**: Can be safely interrupted and resumed (ideal for cron jobs)
 - **API optimized**: Minimizes Galaxy API calls (~80% reduction vs manual approach)
 
@@ -144,10 +150,16 @@ python batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> --add -
 For each species, workflows run in this order:
 1. **Workflow 1** (kmer-profiling): Generates k-mer profile and QC data
 2. **Workflow 4** (assembly-phasing): Generates hap1 and hap2 assemblies (waits for WF1 completion)
-3. **Workflow 0** (mitogenome): Assembles mitochondrial genome (runs after WF4 launch, doesn't wait)
-4. **Workflow 8** (scaffolding): Scaffolds both haplotypes with Hi-C (waits for WF4 completion, runs in parallel)
-5. **Workflow 9** (decontamination): Decontaminates both haplotypes (waits for WF8 completion, runs in parallel)
+3. **Workflow 0** (mitogenome): Assembles mitochondrial genome (runs in background after WF4 launch, doesn't block progress)
+4. **Workflow 8** (scaffolding): Scaffolds both haplotypes with Hi-C (polls for WF4 outputs, **both haplotypes launch in parallel**)
+5. **Workflow 9** (decontamination): Decontaminates both haplotypes (waits for WF8 completion, **both haplotypes launch in parallel**)
 6. **Pre-Curation** (optional): Generates Pretext contact maps for manual curation (waits for WF4 and WF9 completion)
+
+**Performance optimizations:**
+- WF0 runs in background (doesn't block WF8/WF9)
+- WF8 hap1 & hap2 launch simultaneously (2x faster)
+- WF9 hap1 & hap2 launch simultaneously (2x faster)
+- WF8 waits for specific WF4 outputs (`usable hap1 gfa`, `usable hap2 gfa`, etc.) before launching
 
 ### Setup: Create a Profile File
 
@@ -172,10 +184,11 @@ Workflow_9: yza567bcd890  # Assembly-decontamination-VGP9
 # Optional: Workflow 9 decontamination method
 wf9_version: fcs  # Use 'fcs' (default, NCBI FCS-GX) or 'legacy' (Kraken2)
 
-# Optional: Polling intervals for workflow completion (in minutes)
-# How often to check if workflows have completed before launching the next workflow
-# poll_interval_wf1: 30     # Workflow 1 polling interval (default: 30 minutes)
-# poll_interval_other: 60   # Other workflows polling interval (default: 60 minutes)
+# Optional: Polling intervals (in minutes)
+# How often to check workflow status and outputs before launching the next workflow
+# poll_interval_wf1: 30         # Workflow 1 completion polling (default: 30 minutes)
+# poll_interval_other: 60        # Other workflows completion polling (default: 60 minutes)
+# poll_interval_outputs: 60      # Polling for specific outputs (e.g., WF4→WF8, default: 60 minutes)
 ````
 
 **Note**: When using `wf9_version: fcs`, taxon IDs are automatically queried from NCBI dataset for each species. The `ncbi dataset` command-line tool must be installed (see https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/).
@@ -261,10 +274,27 @@ vgp-run-all \
   -m <Metadata directory> \
   --resume \
   [--version | --id] \
-  [--retry-failed]
+  [--retry-failed] \
+  [--download-reports]
 
 # Or if running from source
 python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --resume --id
+````
+
+**Sync metadata without launching workflows**:
+
+````bash
+# Update metadata from Galaxy histories and optionally download reports
+vgp-run-all \
+  -t <Table with file paths> \
+  -p <Profile YAML file> \
+  -m <Metadata directory> \
+  --sync-metadata \
+  [--version | --id] \
+  [--download-reports]
+
+# Example: Cleanup after all workflows complete
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
 ````
 
 **Quiet mode and output redirection**:
@@ -297,7 +327,9 @@ vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id --quiet 2> errors.lo
 - **-s, --suffix**: Optional suffix for this run (e.g., `v2.0`)
 - **-c, --concurrent**: Number of species to process in parallel (default: 3)
 - **--resume**: Resume a previous run using saved metadata
+- **--sync-metadata**: Sync metadata from Galaxy histories without launching workflows (mutually exclusive with `--resume`)
 - **--retry-failed**: When used with `--resume`, automatically retry failed or cancelled invocations
+- **--download-reports**: Download PDF reports for completed invocations (use with `--resume` or `--sync-metadata`)
 - **-q, --quiet**: Quiet mode - only show warnings and errors (suppresses informational messages)
 
 ### Output Files
@@ -385,6 +417,104 @@ Resetting failed invocations to allow retry...
 Failed workflows will be re-launched during this run.
 ````
 
+### Intelligent Error Detection
+
+The script automatically diagnoses common failure patterns to help distinguish expected failures from real errors:
+
+**Workflow 0 (Mitochondrial Assembly) Failures:**
+
+When WF0 fails, the script checks the MitoHifi step to determine the cause:
+
+````bash
+# Example output for missing mitochondrial data:
+============================================================
+⚠  WARNING: Found failed/cancelled invocations:
+============================================================
+  - bPasIli2 Workflow_0: Reads probably contain no mitochondrial data (MitoHifi found 0 mapped reads)
+    ℹ️  This is expected if the sample has no mitochondrial sequences
+    (invocation: abc123def456)
+````
+
+**Error types detected:**
+- **No mitochondrial data**: MitoHifi found 0 mapped reads (common, expected for some samples)
+- **MitoHifi errors**: Other MitoHifi-related failures
+- **General errors**: Other workflow failures
+
+This helps you quickly identify which WF0 failures are expected vs which need investigation.
+
+### Metadata Sync Mode (`--sync-metadata`)
+
+Use `--sync-metadata` to update metadata from Galaxy without launching new workflows. This is ideal for:
+- **Final cleanup** after all workflows complete
+- **Recovering from manual fixes** in Galaxy
+- **Checking status** of background workflows (e.g., WF0)
+- **Tidying metadata** after interruptions
+
+````bash
+# Sync metadata and download all reports
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
+
+# Output:
+============================================================
+Sync metadata mode: Metadata has been updated from Galaxy
+============================================================
+
+Saving updated metadata...
+✓ Saved: metadata/metadata_run.json
+✓ Cleaned up per-species metadata files
+
+============================================================
+Metadata sync complete!
+============================================================
+
+Summary of invocations found:
+
+bPasIli2:
+  Workflow_1: abc123def456
+  Workflow_4: def456ghi789
+  Workflow_0: ghi789jkl012  # Captured from background run!
+  Workflow_8_hap1: jkl012mno345
+  Workflow_8_hap2: mno345pqr678
+````
+
+**Key features:**
+- Searches Galaxy histories for missing invocations
+- Updates metadata with latest invocation IDs and states
+- Optionally downloads PDF reports (`--download-reports`)
+- Consolidates per-species metadata files
+- **Does not launch any workflows** (safe, read-only for workflows)
+- Mutually exclusive with `--resume`
+
+### Report Downloads (`--download-reports`)
+
+Automatically download PDF reports for completed invocations when using `--resume` or `--sync-metadata`:
+
+````bash
+# Download reports during resume
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --resume --id --download-reports
+
+# Or during metadata sync
+vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
+
+# Output:
+📄 Report download enabled - will attempt to download PDF reports for completed invocations
+   (This feature can be unreliable; errors are logged but won't stop execution)
+
+...
+    Found Workflow_1: abc123def456
+      Retrieved 15 dataset IDs
+      Downloading report for Workflow_1 (bPasIli2)...
+      ✓ Report saved: bPasIli2/reports/bPasIli2_Workflow_1_report.pdf
+````
+
+**Features:**
+- Only downloads for completed invocations (ok, failed, cancelled states)
+- Errors are logged but don't stop execution (feature can be unreliable)
+- Must be used with `--resume` or `--sync-metadata`
+- Reports saved to paths specified in metadata
+
+**Note:** This feature can be unreliable due to Galaxy API limitations. Use the separate `vgp-download-reports` tool for more robust batch downloading.
+
 ### Example Complete Workflow
 
 ````bash
@@ -421,16 +551,31 @@ vgp-run-all \
   --resume \
   --id
 
-# 5. View results
+# 5. After completion: sync metadata and download all reports
+vgp-run-all \
+  -t species_list.tsv \
+  -p profile.yaml \
+  -m ./metadata \
+  --sync-metadata \
+  --id \
+  --download-reports
+
+# 6. View results
 cat metadata/results_run.json
 ````
 
 ### Advantages vs Manual Workflow Execution
 
 - **Time savings**: No need to monitor workflows and manually trigger next steps
-- **Resource efficiency**: Script exits quickly with `--no_wait` (minutes vs days)
+- **2x faster haplotype processing**: WF8 and WF9 launch both haplotypes simultaneously
+- **Intelligent polling**: Waits for specific outputs before launching dependent workflows
+- **Resource efficiency**: Script exits quickly with `--no_wait` (minutes vs days); WF0 runs in background
+- **Enhanced progress visibility**: Detailed polling messages with timestamps and job progress
 - **Error recovery**: Automatically handles missing invocation files via Galaxy history search
-- **Parallel execution**: Process multiple species simultaneously
+- **Smart error detection**: Distinguishes expected failures (e.g., no mitochondrial data) from real errors
+- **Parallel execution**: Process multiple species and haplotypes simultaneously
+- **Flexible metadata management**: Sync mode for cleanup, resume mode for continuing work
+- **Optional report downloads**: Automatically download PDFs during resume/sync
 - **Reproducibility**: All parameters saved in profile and metadata files
 - **Resume-friendly**: Can be interrupted and resumed without data loss
 
