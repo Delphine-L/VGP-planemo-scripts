@@ -789,6 +789,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     history_name=list_metadata[assembly_id]['History_name']
     suffix_run=profile_data['Suffix']
 
+    # Initialize invocation cache (built lazily when first needed to minimize API calls)
+    history_invocation_cache = None
+
     # Try to get history_id (only during resume - for new runs it will be created by WF1)
     history_id = None
     if is_resume:
