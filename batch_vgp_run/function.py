@@ -1339,7 +1339,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     # Prepare YAML for workflows that need to be launched
     if wf8_to_launch:
         for hap_code in wf8_to_launch:
-            prepare_yaml_wf8(assembly_id, list_metadata, wf4_inv, profile_data)
+            prepare_yaml_wf8(assembly_id, list_metadata, wf4_inv, profile_data, hap_code)
 
     # Launch workflows
     for hap_code in wf8_to_launch:
@@ -1797,18 +1797,36 @@ def prepare_yaml_wf4(assembly_id, list_metadata, profile_data):
     with open(list_metadata[assembly_id]['job_files']['Workflow_4'], 'w') as yaml_wf4:
         yaml_wf4.write(filedata)
 
-def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4, profile_data):
+def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4, profile_data, haplotype_code):
     dic_data_ids=get_datasets_ids(invocation_wf4)
     path_script=profile_data['path_script']
+
+    # Map haplotype code to GFA output name and haplotype value
+    if haplotype_code == 'hap1':
+        gfa_output_name = 'usable hap1 gfa'
+        haplotype_value = 'Haplotype 1'
+    elif haplotype_code == 'hap2':
+        gfa_output_name = 'usable hap2 gfa'
+        haplotype_value = 'Haplotype 2'
+    else:
+        raise ValueError(f"Unknown haplotype code: {haplotype_code}")
+
+    # Map the old gfa_assembly name to the haplotype-specific output
+    dic_data_ids['gfa_assembly'] = dic_data_ids.get(gfa_output_name, '')
+
     with open(path_script+"/templates/wf8_run_sample.yaml", 'r') as sample_file:
         filedata = sample_file.read()
     pattern = r'\["(.*)"\]' # Matches the fields to replace
     to_fill = re.findall(pattern, filedata)
     dic_data_ids['Species Name']=list_metadata[assembly_id]['Name']
     dic_data_ids['Assembly Name']=assembly_id
+    dic_data_ids['haplotype']=haplotype_value
     for i in to_fill:
         filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
-    with open(list_metadata[assembly_id]['job_files']['Workflow_8'], 'w') as yaml_wf8:
+
+    # Use the haplotype-specific job file key
+    wf8_key = f"Workflow_8_{haplotype_code}"
+    with open(list_metadata[assembly_id]['job_files'][wf8_key], 'w') as yaml_wf8:
         yaml_wf8.write(filedata)
         
 def prepare_yaml_wf0(assembly_id, list_metadata, invocation_wf4, profile_data):
