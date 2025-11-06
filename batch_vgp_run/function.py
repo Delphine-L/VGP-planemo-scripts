@@ -508,6 +508,71 @@ def poll_until_invocation_complete(gi, invocation_id, workflow_name, assembly_id
     print(f"⚠ Maximum polling time reached for {workflow_name}")
     return (False, 'timeout')
 
+def poll_until_outputs_ready(gi, invocation_id, required_outputs, workflow_name, assembly_id, poll_interval=3600, max_polls=72):
+    """
+    Poll an invocation until required outputs are ready (exist in the invocation).
+    Used when we need specific outputs before launching the next workflow.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        invocation_id (str): Invocation ID to check
+        required_outputs (list): List of required output names
+        workflow_name (str): Workflow name for logging
+        assembly_id (str): Assembly ID for logging
+        poll_interval (int): Seconds between polls (default: 3600 = 1 hour)
+        max_polls (int): Maximum number of polls before giving up (default: 72 = 3 days)
+
+    Returns:
+        tuple: (outputs_ready: bool, missing_outputs: list)
+    """
+    print(f"\n{'='*60}")
+    print(f"Polling {workflow_name} outputs for {assembly_id} (invocation: {invocation_id})")
+    print(f"Waiting for outputs: {', '.join(required_outputs)}")
+    print(f"Status will be checked every {poll_interval//60} minutes")
+    print(f"{'='*60}\n")
+
+    for poll_count in range(max_polls):
+        try:
+            # Check if required outputs exist
+            outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_id, required_outputs)
+
+            if outputs_ready:
+                print(f"✓ All required outputs are ready for {workflow_name}!")
+                return (True, [])
+            else:
+                print(f"Poll {poll_count + 1}/{max_polls}: Still missing outputs: {', '.join(missing_outputs)}")
+
+            # Check invocation state for context
+            try:
+                summary = gi.invocations.get_invocation_summary(str(invocation_id))
+                state = summary.get('populated_state', 'unknown')
+                print(f"  Invocation state: {state}")
+
+                # If invocation failed, no point in waiting
+                if state in ['failed', 'cancelled', 'error']:
+                    print(f"✗ {workflow_name} invocation failed with state: {state}")
+                    print(f"  Required outputs will not be generated.")
+                    return (False, missing_outputs)
+            except Exception as e:
+                print(f"  Warning: Could not check invocation state: {e}")
+
+            # Still waiting, sleep before next poll
+            if poll_count < max_polls - 1:  # Don't sleep on last iteration
+                print(f"  Sleeping for {poll_interval//60} minutes...")
+                print(f"  (You can safely interrupt with Ctrl+C and resume later)\n")
+                time.sleep(poll_interval)
+
+        except Exception as e:
+            print(f"Warning: Error checking outputs: {e}")
+            if poll_count < max_polls - 1:
+                print(f"  Retrying in {poll_interval//60} minutes...\n")
+                time.sleep(poll_interval)
+
+    # Max polls reached
+    print(f"⚠ Maximum polling time reached for {workflow_name} outputs")
+    print(f"  Still missing: {', '.join(missing_outputs)}")
+    return (False, missing_outputs)
+
 def batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run):
     """
     Pre-populate all species metadata with invocations from their histories.
@@ -1138,10 +1203,19 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
         if not outputs_ready:
             print(f"Workflow 4 for {assembly_id}: Required outputs for WF8 not yet ready. Missing: {', '.join(missing_outputs)}")
-            print(f"Resume again later when Workflow 4 has progressed further.")
-            return {assembly_id: list_metadata[assembly_id]}
-        else:
-            print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
+            # Poll until outputs are ready
+            poll_interval = profile_data.get('poll_interval_outputs', 60) * 60  # Convert minutes to seconds (default: 1 hour)
+            outputs_ready, missing_outputs = poll_until_outputs_ready(
+                gi, invocation_wf4, required_wf4_outputs,
+                "Workflow 4", assembly_id, poll_interval=poll_interval
+            )
+
+            if not outputs_ready:
+                print(f"Workflow 4 for {assembly_id}: Required outputs not ready after polling.")
+                print(f"Resume again later when Workflow 4 has progressed further.")
+                return {assembly_id: list_metadata[assembly_id]}
+
+        print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
     else:
         # Normal mode: WF4 ready (either found or just launched), proceed to WF8
         print(f"\n=== Workflow 4 ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
