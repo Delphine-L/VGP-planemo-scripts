@@ -121,6 +121,12 @@ def main():
         profile_data = yaml.safe_load(file)
 
     profile_data['Metadata_directory']=function.fix_directory(args.metadata_directory)
+
+    # Create metadata directory if it doesn't exist
+    if not os.path.exists(profile_data['Metadata_directory']):
+        os.makedirs(profile_data['Metadata_directory'])
+        print(f"Created metadata directory: {profile_data['Metadata_directory']}")
+
     suffix_run,galaxy_instance=function.fix_parameters(args.suffix, profile_data['Galaxy_instance'])
     profile_data['Galaxy_instance']=galaxy_instance
     profile_data['Suffix']=suffix_run
