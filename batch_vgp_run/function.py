@@ -1350,6 +1350,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             print(f"No previous run found for Workflow 8 ({haplotype_name}). Launching...")
         else:
             print(f"Launching Workflow 8 ({haplotype_name}) for {assembly_id}...")
+
         if wf8_key in command_lines:
             os.system(command_lines[wf8_key])
             print(f"Workflow 8 ({haplotype_name}) for {assembly_id} ({species_name}) has been launched.\n")
@@ -1380,6 +1381,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                         if attempt < max_retries - 1:
                             print(f"Waiting for Workflow 8 ({haplotype_name}) JSON file (attempt {attempt+1}/{max_retries})...")
                             time.sleep(retry_interval)
+        else:
+            print(f"⚠ ERROR: Command line for {wf8_key} not found in command_lines dictionary!")
+            print(f"  Available keys: {list(command_lines.keys())}")
+            print(f"  This workflow will not be launched.")
 
     # Store dataset IDs for Workflow 8 (both haplotypes)
     for hap_code, inv_id in wf8_invocations.items():
