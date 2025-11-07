@@ -79,12 +79,26 @@ def main():
     commands=[]
     for i,row in infos.iterrows():
         spec_name=infos.iloc[i]['Species']
-        spec_id=infos.iloc[i]['Assembly']
+        assembly_id=infos.iloc[i]['Assembly']
+
+        # Use Working_Assembly if it exists (for multiple assemblies from same species)
+        # Otherwise use Assembly for backward compatibility
+        if 'Working_Assembly' in infos.columns and pandas.notna(infos.iloc[i]['Working_Assembly']) and str(infos.iloc[i]['Working_Assembly']).strip() != '':
+            spec_id = infos.iloc[i]['Working_Assembly']
+        else:
+            spec_id = assembly_id
+
         hifi_col=infos.iloc[i]['Hifi_reads']
         if hifi_col=='NA':
             print('Warning: '+spec_id+' has been skipped because it has no PacBio reads.')
             continue
         list_pacbio=hifi_col.split(',')
+
+        # Get custom path if it exists (for non-standard GenomeArk directory structure)
+        custom_path = ''
+        if 'Custom_Path' in infos.columns and pandas.notna(infos.iloc[i]['Custom_Path']) and str(infos.iloc[i]['Custom_Path']).strip() != '':
+            custom_path = '/' + str(infos.iloc[i]['Custom_Path']).strip()
+
         species_path="./"+spec_id+"/"
         os.makedirs(species_path, exist_ok=True)
         os.makedirs(species_path+"job_files/", exist_ok=True)
@@ -99,7 +113,8 @@ def main():
         list_res.append(res_file)
         for i in list_pacbio:
             name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
-            str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+spec_id+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
+            # Use assembly_id (not spec_id) in GenomeArk URL, with optional custom_path
+            str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+assembly_id+custom_path+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
         with open(path_script+"/templates/wf1_run.sample.yaml", 'r') as sample_file:
             filedata = sample_file.read()
         filedata = filedata.replace('["Pacbio"]', str_elements )

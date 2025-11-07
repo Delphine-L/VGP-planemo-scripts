@@ -147,6 +147,112 @@ def get_worfklow(Compatible_version, workflow_name, workflow_repo):
     return file_path, release_number
 
 
+def is_workflow_id(value):
+    """
+    Detect if a value is a Galaxy workflow ID or a version number.
+
+    Galaxy workflow IDs are typically 16-character hexadecimal strings.
+    Version numbers are in format X.Y or X.Y.Z (e.g., "0.5", "1.2.3").
+
+    Args:
+        value (str): The value to check
+
+    Returns:
+        bool: True if value appears to be a workflow ID, False if it looks like a version
+    """
+    # Check if it's a hex string (workflow ID pattern)
+    if re.match(r'^[a-f0-9]{16}$', str(value)):
+        return True
+
+    # Check if it's a version number pattern (X.Y or X.Y.Z)
+    if re.match(r'^\d+\.\d+(\.\d+)?$', str(value)):
+        return False
+
+    # If neither pattern matches clearly, try to determine based on length and characters
+    # Workflow IDs are 16 chars and contain only hex digits
+    value_str = str(value)
+    if len(value_str) == 16 and all(c in '0123456789abcdef' for c in value_str.lower()):
+        return True
+
+    # Default to assuming it's a version if it contains dots
+    if '.' in value_str:
+        return False
+
+    # If still unclear, default to version (safer for backward compatibility)
+    log_warning(f"Could not clearly determine if '{value}' is a workflow ID or version. Treating as version.")
+    return False
+
+
+def upload_workflow_to_galaxy(gi, workflow_file_path):
+    """
+    Upload a workflow file to Galaxy and return its ID.
+
+    Args:
+        gi (GalaxyInstance): Connected Galaxy instance
+        workflow_file_path (str): Path to the workflow .ga file
+
+    Returns:
+        str: The workflow ID assigned by Galaxy
+
+    Raises:
+        Exception: If upload fails
+    """
+    try:
+        with open(workflow_file_path, 'r') as wf_file:
+            workflow_dict = json.load(wf_file)
+
+        # Import workflow to Galaxy
+        result = gi.workflows.import_workflow_dict(workflow_dict)
+        workflow_id = result['id']
+        workflow_name = result.get('name', 'Unknown')
+
+        print(f"✓ Uploaded workflow '{workflow_name}' to Galaxy (ID: {workflow_id})")
+        return workflow_id
+
+    except FileNotFoundError:
+        raise Exception(f"Workflow file not found: {workflow_file_path}")
+    except json.JSONDecodeError:
+        raise Exception(f"Invalid JSON in workflow file: {workflow_file_path}")
+    except Exception as e:
+        raise Exception(f"Failed to upload workflow to Galaxy: {e}")
+
+
+def resolve_workflow(gi, workflow_value, workflow_name, workflow_repo):
+    """
+    Resolve a workflow specification to a Galaxy workflow ID.
+
+    This function handles both workflow IDs and version numbers:
+    - If the value is already a workflow ID, returns it directly
+    - If the value is a version number, downloads the workflow, uploads it to Galaxy,
+      and returns the new workflow ID
+
+    Args:
+        gi (GalaxyInstance): Connected Galaxy instance
+        workflow_value (str): Either a workflow ID or version number
+        workflow_name (str): Name of the workflow (for downloading from GitHub)
+        workflow_repo (str): Directory to store downloaded workflows
+
+    Returns:
+        tuple: (workflow_id, version_number, workflow_path)
+            - workflow_id: The Galaxy workflow ID to use with planemo
+            - version_number: The version number (from file or input)
+            - workflow_path: Local path to the workflow file
+    """
+    if is_workflow_id(workflow_value):
+        # It's already an ID, use it directly
+        print(f"Using existing workflow ID: {workflow_value}")
+        return workflow_value, None, None
+    else:
+        # It's a version number, download and upload
+        print(f"Downloading workflow {workflow_name} version {workflow_value}...")
+        workflow_path, version_number = get_worfklow(workflow_value, workflow_name, workflow_repo)
+
+        print(f"Uploading workflow to Galaxy...")
+        workflow_id = upload_workflow_to_galaxy(gi, workflow_path)
+
+        return workflow_id, version_number, workflow_path
+
+
 def get_datasets_ids_from_json(json_path):
     """
     Extract dataset IDs from a planemo invocation JSON file.

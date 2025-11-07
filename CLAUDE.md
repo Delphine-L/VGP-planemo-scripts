@@ -29,6 +29,12 @@ VGP-planemo-scripts is a Python-based pipeline automation system for running VGP
 - Detects HiC type (arima vs dovetail) and locates PacBio HiFi reads
 - Generates tracking table with file paths for downstream workflows
 - Supports adding new species to existing tables
+- **Custom paths**: Handles species with non-standard GenomeArk directory structure via optional third column
+  - Standard path: `{assembly_id}/genomic_data/`
+  - Custom path: `{assembly_id}/{custom_path}/genomic_data/` (e.g., "somatic", "gametic")
+- **Multiple assemblies**: Optional fourth column (suffix) enables running multiple assemblies from the same species
+  - Creates unique working IDs: `{assembly_id}_{suffix}` (e.g., "kcIchGage1_somatic", "kcIchGage1_gametic")
+  - Each entry gets separate directories, metadata, and Galaxy histories
 
 **`batch_vgp_run/prepare_wf{1,3,4,8,9,0}.py`**: Workflow-specific preparation scripts
 - Each script follows the same pattern:
@@ -120,9 +126,23 @@ pip install awscli pandas planemo bioblend pyyaml requests
 
 **Typical workflow sequence:**
 
-1. Create initial species table (TSV with columns: Species_Name, Assembly_ID):
+1. Create initial species table (TSV with columns: Species_Name, Assembly_ID, [Custom_Path], [Suffix]):
 ```bash
+# Standard species (2 columns)
 python batch_vgp_run/get_urls.py -t species_list.tsv
+
+# Species with non-standard GenomeArk structure (3 columns)
+# Example species_list.tsv with custom paths:
+# Homo_sapiens	GCA_000001405.15
+# Ichthyomyzon_gagei	kcIchGage1	somatic
+python batch_vgp_run/get_urls.py -t species_list_with_custom.tsv
+
+# Multiple assemblies from same species (4 columns with suffix)
+# Example: somatic and gametic assemblies from same species
+# Ichthyomyzon_gagei	kcIchGage1	somatic	somatic
+# Ichthyomyzon_gagei	kcIchGage1	gametic	gametic
+# Creates working IDs: kcIchGage1_somatic and kcIchGage1_gametic
+python batch_vgp_run/get_urls.py -t species_list_multiple.tsv
 ```
 
 2. Prepare and run VGP1:
@@ -188,17 +208,38 @@ python batch_vgp_run/run_all.py \
 ```yaml
 Galaxy_instance: https://vgp.usegalaxy.org
 Galaxy_key: your_api_key_here
-Workflow_1: workflow_id_or_version
+Workflow_1: workflow_id_or_version  # Can mix IDs and versions
 Workflow_0: workflow_id_or_version
 Workflow_4: workflow_id_or_version
 Workflow_8: workflow_id_or_version
 Workflow_9: workflow_id_or_version
 ```
 
+**Workflow ID/Version Auto-Detection:**
+- The script automatically detects whether each workflow value is an ID (16-char hex) or version (e.g., "0.5")
+- If a **version** is provided:
+  1. Downloads workflow from GitHub
+  2. Uploads to Galaxy instance
+  3. Updates profile with the workflow ID
+  4. Creates backup (`profile.yaml.bak`)
+- If an **ID** is provided: Uses it directly
+- You can mix IDs and versions in the same profile (e.g., use version for WF1, ID for WF4)
+
 **Add species to existing tracking table:**
 ```bash
+# Standard species
 python batch_vgp_run/get_urls.py -t tracking_runs_species_list.tsv \
   --add -s Taeniopygia_guttata -a bTaeGut2
+
+# Species with non-standard GenomeArk directory structure
+python batch_vgp_run/get_urls.py -t tracking_runs_species_list.tsv \
+  --add -s Ichthyomyzon_gagei -a kcIchGage1 -c somatic -x somatic
+
+# Adding multiple entries from same species (e.g., somatic and gametic)
+python batch_vgp_run/get_urls.py -t tracking_runs_species_list.tsv \
+  --add -s Ichthyomyzon_gagei -a kcIchGage1 -c somatic -x somatic
+python batch_vgp_run/get_urls.py -t tracking_runs_species_list.tsv \
+  --add -s Ichthyomyzon_gagei -a kcIchGage1 -c gametic -x gametic
 ```
 
 ## Key Implementation Details
@@ -207,6 +248,27 @@ python batch_vgp_run/get_urls.py -t tracking_runs_species_list.tsv \
 - Workflows fetched from `https://github.com/iwc-workflows/{workflow_name}/archive/refs/tags/v{version}.zip`
 - Version number added to workflow name in JSON: `"name": "{original_name} - v{version}"`
 - Local caching: checks if `{workflow_dir}/{workflow_name}.ga` exists before downloading
+
+### Custom GenomeArk Paths and Multiple Assemblies
+- Some species have non-standard directory structures in GenomeArk
+- Standard path: `genomeark/species/{species_name}/{assembly_id}/genomic_data/`
+- Custom path: `genomeark/species/{species_name}/{assembly_id}/{custom_path}/genomic_data/`
+- Examples of custom paths: `somatic`, `gametic` (for diploid/polyploid assemblies)
+- Specify via optional third column in input table (Species, Assembly, Custom_Path, [Suffix])
+- Empty or missing Custom_Path values default to standard path structure
+
+**Multiple assemblies from the same species:**
+- Use optional 4th column (Suffix) to distinguish multiple entries with same Species/Assembly
+- Example: Running both somatic and gametic assemblies
+  - Row 1: `Ichthyomyzon_gagei  kcIchGage1  somatic  somatic`
+  - Row 2: `Ichthyomyzon_gagei  kcIchGage1  gametic  gametic`
+- Creates working IDs: `kcIchGage1_somatic` and `kcIchGage1_gametic`
+- Each entry gets separate:
+  - Metadata dictionary key
+  - Directory (e.g., `./kcIchGage1_somatic/`, `./kcIchGage1_gametic/`)
+  - Galaxy history name
+  - Job files, logs, and reports
+- Original assembly ID preserved in metadata for workflow parameters
 
 ### HiC Read Pairing
 - Detects R1/R2 pairing using regex `r'R1'` and `r'R2'`

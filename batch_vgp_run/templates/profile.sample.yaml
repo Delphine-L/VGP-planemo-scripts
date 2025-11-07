@@ -1,11 +1,23 @@
 Galaxy_instance: https://vgp.usegalaxy.org
 Galaxy_key: your_galaxy_api_key_here
 email: your.email@example.com
-Workflow_1: your_workflow_id_or_version_here
-Workflow_4: your_workflow_id_or_version_here
-Workflow_8: your_workflow_id_or_version_here
-Workflow_9: your_workflow_id_or_version_here
-Workflow_0: your_workflow_id_or_version_here
+
+# Workflow specification: Use either workflow IDs or version numbers
+# The script automatically detects which format you're using:
+# - Workflow IDs: 16-character hexadecimal strings (e.g., "a1b2c3d4e5f67890")
+# - Version numbers: Semantic versions (e.g., "0.5", "1.2.3")
+#
+# If you provide version numbers, the script will:
+# 1. Download the workflow from GitHub
+# 2. Upload it to your Galaxy instance
+# 3. Update this profile file with the workflow ID
+# 4. Create a backup of your original profile (profile.yaml.bak)
+#
+Workflow_1: your_workflow_id_or_version_here  # kmer-profiling-hifi-VGP1
+Workflow_4: your_workflow_id_or_version_here  # Assembly-Hifi-HiC-phasing-VGP4
+Workflow_8: your_workflow_id_or_version_here  # Scaffolding-HiC-VGP8
+Workflow_9: your_workflow_id_or_version_here  # Assembly-decontamination-VGP9
+Workflow_0: your_workflow_id_or_version_here  # Mitogenome-assembly-VGP0
 
 # Pre-Curation Workflow (optional - generates Pretext maps for manual curation)
 # Uncomment to enable pre-curation after Workflow 9

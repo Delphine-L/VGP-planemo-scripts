@@ -34,8 +34,8 @@ def main():
     parser.add_argument('-c', '--concurrent', required=False,  default="3", help="Number of concurrent processes to use (default: 3)") 
     parser.add_argument('-p', '--profile', dest="profile",  required=False,  default="", help="Path to the profile file. (See profile.sample.yaml for an example)") 
     parser.add_argument('-m', '--metadata_directory', required=False,  default="./", help="Path to the directory for run metadata.") 
-    parser.add_argument('-i', '--id', action='store_true', required=False, help='The Profile contains the workflow IDs. This option is mutually exclusive with the --version option and will use the workflow in your Galaxy instance.')
-    parser.add_argument('-v', '--version', action='store_true', required=False, help='The Profile contains the workflow versions. This option is mutually exclusive with the --id option and will download the workflows.')
+    parser.add_argument('-i', '--id', action='store_true', required=False, help='(Optional) Force treating profile values as workflow IDs. By default, the script auto-detects whether values are IDs or versions.')
+    parser.add_argument('-v', '--version', action='store_true', required=False, help='(Optional) Force treating profile values as workflow versions. By default, the script auto-detects whether values are IDs or versions.')
     parser.add_argument('-r', '--resume', required=False, action='store_true',  help='Resume a previous run using the metadata json file produced at the end of the run_all.py script and found in the metadata directory.')
     parser.add_argument('--retry-failed', required=False, action='store_true',  help='When used with --resume, automatically retry any failed or cancelled invocations by launching them again.')
     parser.add_argument('--fetch-urls', required=False, action='store_true',  help='Fetch GenomeArk file URLs before running workflows. Use this when the input table only contains Species and Assembly columns (no file paths).')
@@ -69,13 +69,26 @@ def main():
         print("Fetching GenomeArk file URLs...")
         print("=" * 60)
 
-        # Read input table (should have only Species and Assembly columns)
+        # Read input table (can have 2-4 columns: Species, Assembly, [Custom_Path], [Suffix])
         infos = pandas.read_csv(args.species, header=None, sep="\t")
-        infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
 
-        # Check that table has exactly 2 columns
-        if len(infos.columns) != 2:
-            raise SystemExit("Error: When using --fetch-urls, the input table must have exactly 2 columns (Species, Assembly).")
+        # Handle optional columns
+        if len(infos.columns) == 4:
+            infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path', 3: 'Suffix'}, inplace=True)
+            has_custom_path = True
+            has_suffix = True
+            print("Detected 4 columns (Species, Assembly, Custom_Path, Suffix)")
+        elif len(infos.columns) == 3:
+            infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path'}, inplace=True)
+            has_custom_path = True
+            has_suffix = False
+            print("Detected optional third column for custom GenomeArk paths")
+        elif len(infos.columns) == 2:
+            infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
+            has_custom_path = False
+            has_suffix = False
+        else:
+            raise SystemExit(f"Error: When using --fetch-urls, the input table must have 2-4 columns (Species, Assembly, [Custom_Path], [Suffix]). Found {len(infos.columns)} columns.")
 
         # Fetch URLs for each species
         list_hifi_urls = []
@@ -86,18 +99,46 @@ def main():
         for i, row in infos.iterrows():
             species_name = row['Species']
             species_id = row['Assembly']
-            print(f"Fetching URLs for {species_id} ({species_name})...")
+
+            # Get custom path if available and not empty
+            custom_path = None
+            if has_custom_path:
+                custom_path = row['Custom_Path']
+                if pandas.isna(custom_path) or str(custom_path).strip() == '':
+                    custom_path = None
+
+            # Get suffix if available
+            suffix = None
+            if has_suffix:
+                suffix = row['Suffix']
+                if pandas.isna(suffix) or str(suffix).strip() == '':
+                    suffix = None
+
+            display_id = f"{species_id}_{suffix}" if suffix else species_id
+            print(f"Fetching URLs for {display_id} ({species_name})...")
 
             try:
-                hifi_reads, hic_type, hic_forward, hic_reverse = get_urls(species_name, species_id)
+                hifi_reads, hic_type, hic_forward, hic_reverse = get_urls(species_name, species_id, custom_path)
                 list_hifi_urls.append(hifi_reads)
                 list_hic_type.append(hic_type)
                 list_hic_f_urls.append(hic_forward)
                 list_hic_r_urls.append(hic_reverse)
                 print(f"  ✓ Found {hic_type} Hi-C data")
             except Exception as e:
-                print(f"  ✗ Error fetching URLs for {species_id}: {e}")
-                raise SystemExit(f"Failed to fetch URLs for {species_id}. Please check species name and assembly ID.")
+                print(f"  ✗ Error fetching URLs for {display_id}: {e}")
+                raise SystemExit(f"Failed to fetch URLs for {display_id}. Please check species name and assembly ID.")
+
+        # Add missing columns if they weren't in the input
+        if not has_custom_path:
+            infos['Custom_Path'] = ''
+        if not has_suffix:
+            infos['Suffix'] = ''
+
+        # Create Working_Assembly column (used as unique key in metadata)
+        infos['Working_Assembly'] = infos.apply(
+            lambda row: f"{row['Assembly']}_{row['Suffix']}" if row['Suffix'] and str(row['Suffix']).strip() else row['Assembly'],
+            axis=1
+        )
 
         # Add URLs to dataframe
         infos['Hifi_reads'] = list_hifi_urls
@@ -307,11 +348,19 @@ def main():
         dico_workflows["Workflow_9_hap1"]['Name']="Assembly-decontamination-VGP9"
         dico_workflows["Workflow_9_hap2"]['Name']="Assembly-decontamination-VGP9"
         dico_workflows["Workflow_PreCuration"]['Name']="PretextMap-Generation"
+        # Auto-detection mode is now the default behavior
+        # The --id and --version flags are kept for backward compatibility but are optional
         if args.id and args.version:
             raise SystemExit("Error: Please select only one of the two options: --id or --version.")
-        elif not args.version and not args.id:
-            raise SystemExit("Error: Please select one of the two options: --version or --id.")
-        elif args.version:
+
+        # Determine mode: if neither flag is specified, use auto-detection
+        use_auto_detection = not args.id and not args.version
+
+        if use_auto_detection:
+            print("Auto-detecting workflow IDs and versions from profile...")
+            print()
+
+        if args.version or use_auto_detection:
             # Map base workflow names to their keys (handling haplotypes)
             workflow_base_keys = {
                 "Workflow_1": "Workflow_1",
@@ -321,37 +370,79 @@ def main():
                 "Workflow_9": "Workflow_9_hap1"   # Use hap1 as reference
             }
 
+            # Track if any workflows were uploaded (to update profile)
+            profile_updated = False
+
             for base_key, ref_key in workflow_base_keys.items():
                 if base_key in profile_data:
                     wfl_dir=function.fix_directory(path_script+"/workflows/")
-                    worfklow_path, release_number = function.get_worfklow(profile_data[base_key], dico_workflows[ref_key]['Name'], wfl_dir)
+
+                    # Use resolve_workflow to handle both IDs and versions
+                    workflow_id, release_number, workflow_path = function.resolve_workflow(
+                        gi,
+                        profile_data[base_key],
+                        dico_workflows[ref_key]['Name'],
+                        wfl_dir
+                    )
+
+                    # If we got a new ID (from version upload), update the profile
+                    if release_number is not None:  # This means we downloaded and uploaded
+                        profile_data[base_key] = workflow_id
+                        profile_updated = True
 
                     # Assign to all related keys
                     if base_key == "Workflow_8":
-                        dico_workflows["Workflow_8_hap1"]['Path']=worfklow_path
-                        dico_workflows["Workflow_8_hap1"]['version']=release_number
-                        dico_workflows["Workflow_8_hap2"]['Path']=worfklow_path
-                        dico_workflows["Workflow_8_hap2"]['version']=release_number
+                        dico_workflows["Workflow_8_hap1"]['Path']=workflow_id
+                        dico_workflows["Workflow_8_hap1"]['version']=release_number if release_number else 'NA'
+                        dico_workflows["Workflow_8_hap2"]['Path']=workflow_id
+                        dico_workflows["Workflow_8_hap2"]['version']=release_number if release_number else 'NA'
                     elif base_key == "Workflow_9":
-                        dico_workflows["Workflow_9_hap1"]['Path']=worfklow_path
-                        dico_workflows["Workflow_9_hap1"]['version']=release_number
-                        dico_workflows["Workflow_9_hap2"]['Path']=worfklow_path
-                        dico_workflows["Workflow_9_hap2"]['version']=release_number
+                        dico_workflows["Workflow_9_hap1"]['Path']=workflow_id
+                        dico_workflows["Workflow_9_hap1"]['version']=release_number if release_number else 'NA'
+                        dico_workflows["Workflow_9_hap2"]['Path']=workflow_id
+                        dico_workflows["Workflow_9_hap2"]['version']=release_number if release_number else 'NA'
                     else:
-                        dico_workflows[base_key]['Path']=worfklow_path
-                        dico_workflows[base_key]['version']=release_number
+                        dico_workflows[base_key]['Path']=workflow_id
+                        dico_workflows[base_key]['version']=release_number if release_number else 'NA'
                 else:
-                    raise SystemExit("Missing option: "+base_key+" in profile. If you select the --version option, you need to provide a workflow version for "+dico_workflows[ref_key]['Name']+".")
+                    mode_msg = "--version option" if args.version else "profile"
+                    raise SystemExit("Missing option: "+base_key+" in profile. You need to provide a workflow version or ID for "+dico_workflows[ref_key]['Name']+".")
 
             # Handle optional PreCuration workflow
             if "Workflow_PreCuration" in profile_data:
                 wfl_dir=function.fix_directory(path_script+"/workflows/")
-                worfklow_path, release_number = function.get_worfklow(profile_data["Workflow_PreCuration"], dico_workflows["Workflow_PreCuration"]['Name'], wfl_dir)
-                dico_workflows["Workflow_PreCuration"]['Path']=worfklow_path
-                dico_workflows["Workflow_PreCuration"]['version']=release_number
+                workflow_id, release_number, workflow_path = function.resolve_workflow(
+                    gi,
+                    profile_data["Workflow_PreCuration"],
+                    dico_workflows["Workflow_PreCuration"]['Name'],
+                    wfl_dir
+                )
+
+                if release_number is not None:
+                    profile_data["Workflow_PreCuration"] = workflow_id
+                    profile_updated = True
+
+                dico_workflows["Workflow_PreCuration"]['Path']=workflow_id
+                dico_workflows["Workflow_PreCuration"]['version']=release_number if release_number else 'NA'
                 print("Pre-curation workflow enabled")
             else:
                 print("Pre-curation workflow not specified - skipping")
+
+            # Save updated profile if any workflows were uploaded
+            if profile_updated and use_auto_detection:
+                print("\n" + "="*60)
+                print("Saving updated profile with workflow IDs...")
+                # Create a backup of the original profile
+                profile_backup = args.profile + ".bak"
+                import shutil
+                shutil.copy2(args.profile, profile_backup)
+                print(f"✓ Backup created: {profile_backup}")
+
+                # Save updated profile
+                with open(args.profile, 'w') as f:
+                    yaml.dump(profile_data, f, default_flow_style=False, sort_keys=False)
+                print(f"✓ Profile updated with workflow IDs: {args.profile}")
+                print("="*60 + "\n")
         elif args.id:
             # Map base workflow names to their keys (handling haplotypes)
             workflow_base_keys = {
@@ -403,30 +494,48 @@ def main():
             
         for i, _ in infos.iterrows():
             spec_name=infos.iloc[i]['Species']
-            spec_id=infos.iloc[i]['Assembly']
-            list_metadata[spec_id]={}
-            list_metadata[spec_id]['History_name']=spec_id+suffix_run
-            list_metadata[spec_id]['Name']=spec_name
+            assembly_id=infos.iloc[i]['Assembly']
+
+            # Use Working_Assembly as the key if it exists (for species with suffixes)
+            # Otherwise fall back to Assembly for backward compatibility
+            if 'Working_Assembly' in infos.columns:
+                working_assembly = infos.iloc[i]['Working_Assembly']
+                if pandas.isna(working_assembly) or str(working_assembly).strip() == '':
+                    working_assembly = assembly_id
+            else:
+                working_assembly = assembly_id
+
+            list_metadata[working_assembly]={}
+            list_metadata[working_assembly]['Assembly']=assembly_id  # Store original assembly ID
+            list_metadata[working_assembly]['History_name']=working_assembly+suffix_run
+            list_metadata[working_assembly]['Name']=spec_name
+
+            # Store custom_path if it exists (for GenomeArk URL construction)
+            if 'Custom_Path' in infos.columns and pandas.notna(infos.iloc[i]['Custom_Path']) and str(infos.iloc[i]['Custom_Path']).strip() != '':
+                list_metadata[working_assembly]['Custom_Path'] = str(infos.iloc[i]['Custom_Path']).strip()
+            else:
+                list_metadata[working_assembly]['Custom_Path'] = ''
+
             hifi_col=infos.iloc[i]['Hifi_reads']
             if hifi_col=='NA':
-                print('Warning: '+spec_id+' has been skipped because it has no PacBio reads.')
+                print('Warning: '+working_assembly+' has been skipped because it has no PacBio reads.')
                 continue
             list_pacbio=hifi_col.split(',')
-            list_metadata[spec_id]['Hifi_reads']=list_pacbio
-            species_path="./"+spec_id+"/"
-            list_metadata[spec_id]['Path']=species_path
+            list_metadata[working_assembly]['Hifi_reads']=list_pacbio
+            species_path="./"+working_assembly+"/"
+            list_metadata[working_assembly]['Path']=species_path
 
             hic_f_col=infos.iloc[i]['HiC_forward_reads']
             hic_r_col=infos.iloc[i]['HiC_reverse_reads']
             hic_type=infos.iloc[i]['HiC_Type']
             if type(hic_f_col)==float or type(hic_r_col)==float :
-                print('Warning: '+spec_id+' has been skipped because it is missing Hi-C reads.')
+                print('Warning: '+working_assembly+' has been skipped because it is missing Hi-C reads.')
                 continue
             hic_f=hic_f_col.split(',')
             hic_r=hic_r_col.split(',')
-            list_metadata[spec_id]['HiC_Type']=hic_type
-            list_metadata[spec_id]['HiC_forward_reads']=hic_f
-            list_metadata[spec_id]['HiC_reverse_reads']=hic_r
+            list_metadata[working_assembly]['HiC_Type']=hic_type
+            list_metadata[working_assembly]['HiC_forward_reads']=hic_f
+            list_metadata[working_assembly]['HiC_reverse_reads']=hic_r
 
 
             os.makedirs(species_path, exist_ok=True)
@@ -435,22 +544,22 @@ def main():
             os.makedirs(species_path+"reports/", exist_ok=True)
             os.makedirs(species_path+"planemo_log/", exist_ok=True)
 
-            list_metadata[spec_id]["job_files"]={}
-            list_metadata[spec_id]["invocation_jsons"]={}
-            list_metadata[spec_id]["planemo_logs"]={}
-            list_metadata[spec_id]["reports"]={}
-            list_metadata[spec_id]["invocations"]={}
-            list_metadata[spec_id]["dataset_ids"]={}
-            list_metadata[spec_id]["history_id"]='NA'
-            list_metadata[spec_id]["taxon_id"]='NA'
-            list_metadata[spec_id]["failed_invocations"]={}
+            list_metadata[working_assembly]["job_files"]={}
+            list_metadata[working_assembly]["invocation_jsons"]={}
+            list_metadata[working_assembly]["planemo_logs"]={}
+            list_metadata[working_assembly]["reports"]={}
+            list_metadata[working_assembly]["invocations"]={}
+            list_metadata[working_assembly]["dataset_ids"]={}
+            list_metadata[working_assembly]["history_id"]='NA'
+            list_metadata[working_assembly]["taxon_id"]='NA'
+            list_metadata[working_assembly]["failed_invocations"]={}
 
             for wkfl in dico_workflows.keys():
-                list_metadata[spec_id]["job_files"][wkfl]=species_path+'job_files/'+spec_id+suffix_run+'_'+wkfl+'.yml'
-                list_metadata[spec_id]["invocation_jsons"][wkfl]=species_path+'invocations_json/'+spec_id+suffix_run+'_'+wkfl+'.json'
-                list_metadata[spec_id]["planemo_logs"][wkfl]=species_path+"planemo_log/"+spec_id+suffix_run+'_'+wkfl+'.log'
-                list_metadata[spec_id]["reports"][wkfl]=species_path+"reports/"+spec_id+suffix_run+'_'+wkfl+'_report.pdf'
-                list_metadata[spec_id]["invocations"][wkfl]='NA'
+                list_metadata[working_assembly]["job_files"][wkfl]=species_path+'job_files/'+working_assembly+suffix_run+'_'+wkfl+'.yml'
+                list_metadata[working_assembly]["invocation_jsons"][wkfl]=species_path+'invocations_json/'+working_assembly+suffix_run+'_'+wkfl+'.json'
+                list_metadata[working_assembly]["planemo_logs"][wkfl]=species_path+"planemo_log/"+working_assembly+suffix_run+'_'+wkfl+'.log'
+                list_metadata[working_assembly]["reports"][wkfl]=species_path+"reports/"+working_assembly+suffix_run+'_'+wkfl+'_report.pdf'
+                list_metadata[working_assembly]["invocations"][wkfl]='NA'
 
 
     
@@ -458,12 +567,19 @@ def main():
     for species_id in list_metadata.keys():
         str_elements=""
         spec_name=list_metadata[species_id]['Name']
+
+        # Get original assembly ID and custom path for GenomeArk URLs
+        assembly_id = list_metadata[species_id].get('Assembly', species_id)  # Fallback to species_id for backward compatibility
+        custom_path = list_metadata[species_id].get('Custom_Path', '')
+        genomeark_path_segment = '/' + custom_path if custom_path else ''
+
         if os.path.exists(list_metadata[species_id]["job_files"]["Workflow_1"]):
             print("Job file for Workflow 1 already generated for "+species_id)
             continue
         for i in list_metadata[species_id]['Hifi_reads']:
             name=re.sub(r"\.f(ast)?q(sanger)?\.gz","",i)
-            str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+species_id+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
+            # Use assembly_id (not species_id) in GenomeArk URL, with optional custom_path
+            str_elements=str_elements+"\n  - class: File\n    identifier: "+name+"\n    path: gxfiles://genomeark/species/"+spec_name+"/"+assembly_id+genomeark_path_segment+"/genomic_data/pacbio_hifi/"+i+"\n    filetype: fastqsanger.gz"
         with open(path_script+"/templates/wf1_run.sample.yaml", 'r') as sample_file:
             filedata = sample_file.read()
         filedata = filedata.replace('["Pacbio"]', str_elements )

@@ -6,25 +6,64 @@ import argparse
 import textwrap
 
 
-def add_species(species_name,species_id,table):
-	hifi_reads,_,hic_forward,hic_reverse=get_urls(species_name,species_id)
-	new_row=pd.DataFrame({'Species': [species_name], 'Assembly': [species_id], 'Hifi_reads': [hifi_reads], 'HiC_forward_reads': [hic_forward], 'HiC_reverse_reads': [hic_reverse]})
-	result=pd.concat([table, new_row], axis=0)
+def add_species(species_name, species_id, table, custom_path=None, suffix=None):
+	hifi_reads, hic_type, hic_forward, hic_reverse = get_urls(species_name, species_id, custom_path)
+
+	# Create working assembly ID
+	working_assembly = f"{species_id}_{suffix}" if suffix and suffix.strip() else species_id
+
+	new_row = pd.DataFrame({
+		'Species': [species_name],
+		'Assembly': [species_id],
+		'Custom_Path': [custom_path if custom_path else ''],
+		'Suffix': [suffix if suffix else ''],
+		'Working_Assembly': [working_assembly],
+		'Hifi_reads': [hifi_reads],
+		'HiC_Type': [hic_type],
+		'HiC_forward_reads': [hic_forward],
+		'HiC_reverse_reads': [hic_reverse]
+	})
+	result = pd.concat([table, new_row], axis=0)
 	return result
 
 
-def get_urls(species_name,species_id):
-	command_genomic_data="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/ "
-	data_type=subprocess.run(command_genomic_data.split(), capture_output=True, text=True, check=True)
-	if 'arima' in data_type.stdout:
-		hic_type="arima"
-		command_hic="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/arima/ "
-	elif 'dovetail' in data_type.stdout:
-		hic_type="dovetail"
-		command_hic="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/dovetail/ "
+def get_urls(species_name, species_id, custom_path=None):
+	"""
+	Fetch URLs for HiFi and HiC data from GenomeArk.
+
+	Args:
+		species_name (str): Species name (e.g., "Homo_sapiens")
+		species_id (str): Assembly ID (e.g., "GCA_000001405.15")
+		custom_path (str, optional): Custom subdirectory path between assembly_id and genomic_data.
+			For example, "somatic" or "gametic" for species with non-standard directory structure.
+			If None, uses the standard path: {assembly_id}/genomic_data/
+			If provided, uses: {assembly_id}/{custom_path}/genomic_data/
+
+	Returns:
+		tuple: (hifi_reads, hic_type, hic_forward, hic_reverse)
+	"""
+	# Construct base path with optional custom subdirectory
+	if custom_path and custom_path.strip():
+		# Custom path provided - use it
+		base_path = f"genomeark/species/{species_name}/{species_id}/{custom_path.strip()}/genomic_data/"
+		print(f"  Using custom path: {base_path}")
 	else:
-		raise SystemExit("No Hi-C folder (arima or dovetail) found in genomeark/species/"+species_name+"/"+species_id+"/genomic_data/")
-	command_hifi="aws --no-sign-request s3 ls genomeark/species/"+species_name+"/"+species_id+"/genomic_data/pacbio_hifi/ "
+		# Standard path
+		base_path = f"genomeark/species/{species_name}/{species_id}/genomic_data/"
+
+	command_genomic_data = f"aws --no-sign-request s3 ls {base_path}"
+	data_type = subprocess.run(command_genomic_data.split(), capture_output=True, text=True, check=True)
+
+	if 'arima' in data_type.stdout:
+		hic_type = "arima"
+		command_hic = f"aws --no-sign-request s3 ls {base_path}arima/ "
+	elif 'dovetail' in data_type.stdout:
+		hic_type = "dovetail"
+		command_hic = f"aws --no-sign-request s3 ls {base_path}dovetail/ "
+	else:
+		raise SystemExit(f"No Hi-C folder (arima or dovetail) found in {base_path}")
+
+	command_hifi = f"aws --no-sign-request s3 ls {base_path}pacbio_hifi/ "
 	res_cmd_hifi=subprocess.run(command_hifi.split(), capture_output=True, text=True, check=True)
 	res_cmd_hic=subprocess.run(command_hic.split(), capture_output=True, text=True, check=True)
 	list_hifi=res_cmd_hifi.stdout.split('\n')
@@ -80,42 +119,103 @@ def main():
 											Add a species: 
 											- {table}: The input table with the added species.
 											'''))
-	parser.add_argument('-t', '--table', required=True, help='Tabulated file containing the species name (column 1) and assembly id (column 2) with no space')
+	parser.add_argument('-t', '--table', required=True, help='Tabulated file containing: species name (column 1), assembly id (column 2), optional custom path (column 3), optional suffix (column 4)')
 	group = parser.add_argument_group("Add a species to the table","Use the following options to add species to a tracking table. The table must be a table generated previously by this tool.")
 	group.add_argument('--add', action='store_true', required=False, help='Add new species to the table')
 	group.add_argument('-s','--species',  required=False, help='Species Name')
 	group.add_argument('-a','--assembly', required=False, help='Assembly ID')
+	group.add_argument('-c','--custom-path', required=False, help='Optional: Custom subdirectory path (e.g., "somatic", "gametic") for species with non-standard GenomeArk directory structure')
+	group.add_argument('-x','--suffix', required=False, help='Optional: Suffix to distinguish multiple entries with same assembly ID (e.g., "somatic", "gametic"). Creates working ID as {assembly}_{suffix}')
 	args = parser.parse_args()
 
 	if args.add:
-		infos=pd.read_csv(args.table, header=0, sep="\t")
-		if args.species and args.assembly :
-			print("Add: "+args.species)
-			infos=add_species(args.species,args.assembly,infos)
+		infos = pd.read_csv(args.table, header=0, sep="\t")
+		if args.species and args.assembly:
+			custom_path = getattr(args, 'custom_path', None)
+			suffix = getattr(args, 'suffix', None)
+
+			display_id = f"{args.assembly}_{suffix}" if suffix else args.assembly
+			print(f"Adding: {args.species} ({display_id})")
+
+			if custom_path:
+				print(f"  Using custom path: {custom_path}")
+			if suffix:
+				print(f"  Using suffix: {suffix}")
+
+			infos = add_species(args.species, args.assembly, infos, custom_path, suffix)
 			infos.to_csv(args.table, sep='\t', header=True, index=False)
 		elif args.species:
 			raise SystemExit("Missing option: -a. If you select the --add option, you need to provide an assembly id.")
-		elif args.species:
+		elif args.assembly:
 			raise SystemExit("Missing option: -s. If you select the --add option, you need to provide a species name.")
 
 	else:
-		infos=pd.read_csv(args.table, header=None, sep="\t")
-		list_hifi_urls=[]
-		list_hic_f_urls=[]
-		list_hic_r_urls=[]
-		infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
+		infos = pd.read_csv(args.table, header=None, sep="\t")
+		list_hifi_urls = []
+		list_hic_type = []
+		list_hic_f_urls = []
+		list_hic_r_urls = []
 
-		for i,row in infos.iterrows():
-			species_name=row['Species']
-			species_id=row['Assembly']
-			hifi_reads,hic_type,hic_forward,hic_reverse=get_urls(species_name,species_id)
+		# Check columns: Species, Assembly, [Custom_Path], [Suffix]
+		if len(infos.columns) == 4:
+			infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path', 3: 'Suffix'}, inplace=True)
+			has_custom_path = True
+			has_suffix = True
+			print("Detected 4 columns (Species, Assembly, Custom_Path, Suffix)")
+		elif len(infos.columns) == 3:
+			infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path'}, inplace=True)
+			has_custom_path = True
+			has_suffix = False
+			print("Detected optional third column for custom GenomeArk paths")
+		elif len(infos.columns) == 2:
+			infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
+			has_custom_path = False
+			has_suffix = False
+		else:
+			raise SystemExit(f"Error: Input table must have 2, 3, or 4 columns (Species, Assembly, [Custom_Path], [Suffix]). Found {len(infos.columns)} columns.")
+
+		for i, row in infos.iterrows():
+			species_name = row['Species']
+			species_id = row['Assembly']
+
+			# Get custom path if available and not empty
+			custom_path = None
+			if has_custom_path:
+				custom_path = row['Custom_Path']
+				if pd.isna(custom_path) or custom_path.strip() == '':
+					custom_path = None
+
+			# Get suffix if available
+			suffix = None
+			if has_suffix:
+				suffix = row['Suffix']
+				if pd.isna(suffix) or str(suffix).strip() == '':
+					suffix = None
+
+			display_id = f"{species_id}_{suffix}" if suffix else species_id
+			print(f"Fetching URLs for {display_id} ({species_name})...")
+			hifi_reads, hic_type, hic_forward, hic_reverse = get_urls(species_name, species_id, custom_path)
 			list_hifi_urls.append(hifi_reads)
+			list_hic_type.append(hic_type)
 			list_hic_f_urls.append(hic_forward)
 			list_hic_r_urls.append(hic_reverse)
-		infos['Hifi_reads']=list_hifi_urls
-		infos['HiC_Type']=hic_type
-		infos['HiC_forward_reads']=list_hic_f_urls
-		infos['HiC_reverse_reads']=list_hic_r_urls
+
+		# Add missing columns if they weren't in the input
+		if not has_custom_path:
+			infos['Custom_Path'] = ''
+		if not has_suffix:
+			infos['Suffix'] = ''
+
+		# Create Working_Assembly column (used as unique key in metadata)
+		infos['Working_Assembly'] = infos.apply(
+			lambda row: f"{row['Assembly']}_{row['Suffix']}" if row['Suffix'] and str(row['Suffix']).strip() else row['Assembly'],
+			axis=1
+		)
+
+		infos['Hifi_reads'] = list_hifi_urls
+		infos['HiC_Type'] = list_hic_type
+		infos['HiC_forward_reads'] = list_hic_f_urls
+		infos['HiC_reverse_reads'] = list_hic_r_urls
 
 		infos.to_csv("tracking_runs_"+args.table, sep='\t', header=True, index=False)
 
