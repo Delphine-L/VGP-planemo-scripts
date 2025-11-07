@@ -1742,6 +1742,24 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             # Query NCBI dataset
             species_name_for_ncbi = species_name.replace("_", " ")
             try:
+                # First check if datasets command is available
+                datasets_path = shutil.which('datasets')
+                if not datasets_path:
+                    print(f"Error: 'datasets' command not found in PATH")
+                    print(f"Current PATH: {os.environ.get('PATH', 'Not set')}")
+                    print(f"Please install the NCBI datasets tool:")
+                    print(f"  1. Run: bash installs.sh")
+                    print(f"  2. Or manually: curl -o ~/.local/bin/datasets https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets && chmod +x ~/.local/bin/datasets")
+                    print(f"  3. Add to PATH: export PATH=\"$HOME/.local/bin:$PATH\"")
+                    print(f"https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/")
+                    raise SystemExit(f"Failed to get taxon ID for {species_name}: datasets tool not found")
+
+                # Check if it's executable
+                if not os.access(datasets_path, os.X_OK):
+                    print(f"Error: 'datasets' found at {datasets_path} but is not executable")
+                    print(f"Run: chmod +x {datasets_path}")
+                    raise SystemExit(f"Failed to get taxon ID for {species_name}: datasets tool not executable")
+
                 datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name_for_ncbi, '--as-json-lines']
                 data_type = subprocess.run(datasets_command, capture_output=True, text=True, check=True)
                 taxon_data = json.loads(data_type.stdout)
@@ -1751,8 +1769,32 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
                 # Store in metadata for future runs
                 list_metadata[assembly_id]['taxon_id'] = taxon_id
+            except FileNotFoundError as e:
+                print(f"Error: 'datasets' command not found: {e}")
+                print(f"Please install the NCBI datasets tool:")
+                print(f"  1. Run: bash installs.sh")
+                print(f"  2. Or manually download from: https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/")
+                print(f"  3. Add to PATH: export PATH=\"$HOME/.local/bin:$PATH\"")
+                raise SystemExit(f"Failed to get taxon ID for {species_name}: datasets tool not found")
+            except PermissionError as e:
+                datasets_path = shutil.which('datasets') or 'datasets'
+                print(f"Error: Permission denied when trying to execute 'datasets': {e}")
+                print(f"Dataset binary location: {datasets_path}")
+                print(f"Possible fixes:")
+                print(f"  1. Check execute permissions: ls -la {datasets_path}")
+                print(f"  2. Add execute permission: chmod +x {datasets_path}")
+                print(f"  3. Check if filesystem is mounted with noexec: mount | grep $(df {datasets_path} | tail -1 | awk '{{print $1}}')")
+                print(f"  4. Try installing to a different location with exec permissions")
+                raise SystemExit(f"Failed to get taxon ID for {species_name}: permission denied")
+            except subprocess.CalledProcessError as e:
+                print(f"Error running datasets command: {e}")
+                print(f"Command: {' '.join(datasets_command)}")
+                print(f"Return code: {e.returncode}")
+                print(f"Stderr: {e.stderr}")
+                raise SystemExit(f"Failed to get taxon ID for {species_name}")
             except Exception as e:
                 print(f"Error querying NCBI dataset for {species_name}: {e}")
+                print(f"Error type: {type(e).__name__}")
                 print(f"Please check you have the latest version of the NCBI datasets tool installed.")
                 print(f"https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/")
                 raise SystemExit(f"Failed to get taxon ID for {species_name}")

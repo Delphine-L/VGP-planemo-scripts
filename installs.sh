@@ -2,6 +2,12 @@
 
 # VGP Planemo Scripts - Dependency Installation
 # This script installs all required dependencies for the VGP pipeline
+#
+# SLURM/HPC USERS: If you're on a SLURM cluster:
+# 1. Make sure ~/.local/bin has execute permissions (check: mount | grep home)
+# 2. If your home directory is on a noexec filesystem, install to a different location
+# 3. Add export PATH="$HOME/.local/bin:$PATH" to your ~/.bashrc
+# 4. Source your bashrc in SLURM job scripts: source ~/.bashrc
 
 set -e  # Exit on error
 
@@ -32,12 +38,26 @@ else
 fi
 
 # Download datasets binary
-INSTALL_DIR="$HOME/.local/bin"
+# Allow custom install directory (useful for SLURM/HPC with noexec home directories)
+INSTALL_DIR="${DATASETS_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$INSTALL_DIR"
 
 echo "Downloading NCBI datasets tool from $DATASETS_URL..."
+echo "Installing to: $INSTALL_DIR"
 curl -o "$INSTALL_DIR/datasets" "$DATASETS_URL"
 chmod +x "$INSTALL_DIR/datasets"
+
+# Check if the directory allows execution
+if ! "$INSTALL_DIR/datasets" --version &> /dev/null; then
+    echo ""
+    echo "WARNING: Could not execute datasets from $INSTALL_DIR"
+    echo "This might be because the filesystem is mounted with 'noexec' flag."
+    echo "To check: mount | grep $(df $INSTALL_DIR | tail -1 | awk '{print \$1}')"
+    echo ""
+    echo "To install to a different location, run:"
+    echo "  DATASETS_INSTALL_DIR=/alternative/path bash installs.sh"
+    echo "Then add that path to your PATH variable."
+fi
 
 # Check if ~/.local/bin is in PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
