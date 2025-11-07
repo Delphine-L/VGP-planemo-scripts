@@ -339,6 +339,8 @@ vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id --quiet 2> errors.lo
 - `metadata_workflow<suffix>.json`: Workflow paths and versions
 - `results_run<suffix>.json`: Final status for each species
 - `metadata_<assembly_id>_run<suffix>.json`: Per-species metadata (temporary, deleted after successful completion)
+- `metadata_<assembly_id>_Workflow_8_hap[1|2]_run<suffix>.json`: Per-haplotype metadata for crash recovery (temporary)
+- `metadata_<assembly_id>_Workflow_9_hap[1|2]_run<suffix>.json`: Per-haplotype metadata for crash recovery (temporary)
 
 **Per species** (`<assembly_id>/`):
 - `job_files/`: YAML job files for each workflow
@@ -376,6 +378,16 @@ The script automatically saves per-species metadata files (`metadata_<assembly_i
 - After Workflow 9 completes (both haplotypes)
 
 These files are merged into the global metadata file when each species completes successfully, then deleted. If a run is interrupted, `--resume` will load these per-species files to recover the most recent state.
+
+**Per-Haplotype Crash Recovery:**
+
+For Workflow 8 and Workflow 9, which run both haplotypes in parallel threads, additional per-haplotype metadata files are saved:
+- `metadata_<assembly_id>_Workflow_8_hap1_run<suffix>.json`
+- `metadata_<assembly_id>_Workflow_8_hap2_run<suffix>.json`
+- `metadata_<assembly_id>_Workflow_9_hap1_run<suffix>.json`
+- `metadata_<assembly_id>_Workflow_9_hap2_run<suffix>.json`
+
+Each thread saves its metadata immediately after the planemo command completes. This ensures crash recovery works even if only one haplotype has finished when the script is interrupted. On `--resume`, these per-haplotype files are loaded and merged into the main metadata before checking which haplotypes need to be launched.
 
 **Handling Failed Invocations:**
 
@@ -416,6 +428,16 @@ Resetting failed invocations to allow retry...
 
 Failed workflows will be re-launched during this run.
 ````
+
+**Important Note on Failed Invocation Handling:**
+
+When using `--resume`, the script queries Galaxy histories to find missing invocations. To prevent re-adding failed invocations that were marked for retry with `--retry-failed`, the script now:
+
+1. Checks the state of each invocation found in history
+2. Skips invocations in `failed`, `cancelled`, or `error` states
+3. Only adds invocations in other states (running, scheduled, ok) to metadata
+
+This ensures that `--retry-failed` works correctly - failed invocations remain as 'NA' in metadata so they can be relaunched, rather than being re-populated from history.
 
 ### Intelligent Error Detection
 
@@ -567,7 +589,9 @@ cat metadata/results_run.json
 ### Advantages vs Manual Workflow Execution
 
 - **Time savings**: No need to monitor workflows and manually trigger next steps
-- **2x faster haplotype processing**: WF8 and WF9 launch both haplotypes simultaneously
+- **2x faster haplotype processing**: WF8 and WF9 launch both haplotypes simultaneously using Python threads
+- **Reliable parallel execution**: Each thread waits for planemo to complete (no background processes or timeouts)
+- **Robust crash recovery**: Per-haplotype metadata files ensure no data loss, even if only one haplotype completed
 - **Intelligent polling**: Waits for specific outputs before launching dependent workflows
 - **Resource efficiency**: Script exits quickly with `--no_wait` (minutes vs days); WF0 runs in background
 - **Enhanced progress visibility**: Detailed polling messages with timestamps and job progress
@@ -575,9 +599,10 @@ cat metadata/results_run.json
 - **Smart error detection**: Distinguishes expected failures (e.g., no mitochondrial data) from real errors
 - **Parallel execution**: Process multiple species and haplotypes simultaneously
 - **Flexible metadata management**: Sync mode for cleanup, resume mode for continuing work
+- **Smart retry logic**: `--retry-failed` correctly handles failed invocations without re-adding them from history
 - **Optional report downloads**: Automatically download PDFs during resume/sync
 - **Reproducibility**: All parameters saved in profile and metadata files
-- **Resume-friendly**: Can be interrupted and resumed without data loss
+- **Resume-friendly**: Can be interrupted and resumed without data loss, even mid-haplotype execution
 
 ---
 
