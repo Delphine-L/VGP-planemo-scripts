@@ -1,6 +1,7 @@
-"Scaffolded assembly (fasta)": 
+"Scaffolded assembly (fasta)":
   class: File
   galaxy_id: ["Reconciliated Scaffolds: fasta"]
+"Database for NCBI FCS GX": "all"
 "Taxonomic Identifier":  ["taxon_ID"]
 "Species Binomial Name":  "["Species Name"]"
 "Assembly Name": "["Assembly Name"]"
