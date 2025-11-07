@@ -34,18 +34,24 @@ def get_urls(species_name, species_id, custom_path=None):
 	Args:
 		species_name (str): Species name (e.g., "Homo_sapiens")
 		species_id (str): Assembly ID (e.g., "GCA_000001405.15")
-		custom_path (str, optional): Custom subdirectory path between assembly_id and genomic_data.
-			For example, "somatic" or "gametic" for species with non-standard directory structure.
-			If None, uses the standard path: {assembly_id}/genomic_data/
-			If provided, uses: {assembly_id}/{custom_path}/genomic_data/
+		custom_path (str, optional): Full path to genomic_data directory.
+			If provided, should be complete path like:
+			"genomeark/species/Ichthyomyzon_gagei/kcIchGage1/gametic/genomic_data/"
+			If None, uses the standard path construction.
 
 	Returns:
 		tuple: (hifi_reads, hic_type, hic_forward, hic_reverse)
 	"""
-	# Construct base path with optional custom subdirectory
+	# Construct base path
 	if custom_path and custom_path.strip():
-		# Custom path provided - use it
-		base_path = f"genomeark/species/{species_name}/{species_id}/{custom_path.strip()}/genomic_data/"
+		# Custom full path provided - use it directly
+		base_path = custom_path.strip()
+		# Ensure it ends with genomic_data/ (add if missing)
+		if not base_path.endswith('genomic_data/'):
+			if base_path.endswith('/'):
+				base_path += 'genomic_data/'
+			else:
+				base_path += '/genomic_data/'
 		print(f"  Using custom path: {base_path}")
 	else:
 		# Standard path
@@ -119,12 +125,12 @@ def main():
 											Add a species: 
 											- {table}: The input table with the added species.
 											'''))
-	parser.add_argument('-t', '--table', required=True, help='Tabulated file containing: species name (column 1), assembly id (column 2), optional custom path (column 3), optional suffix (column 4)')
+	parser.add_argument('-t', '--table', required=True, help='Tabulated file containing: species name (column 1), assembly id (column 2), optional full path to genomic_data/ (column 3), optional suffix (column 4)')
 	group = parser.add_argument_group("Add a species to the table","Use the following options to add species to a tracking table. The table must be a table generated previously by this tool.")
 	group.add_argument('--add', action='store_true', required=False, help='Add new species to the table')
 	group.add_argument('-s','--species',  required=False, help='Species Name')
 	group.add_argument('-a','--assembly', required=False, help='Assembly ID')
-	group.add_argument('-c','--custom-path', required=False, help='Optional: Custom subdirectory path (e.g., "somatic", "gametic") for species with non-standard GenomeArk directory structure')
+	group.add_argument('-c','--custom-path', required=False, help='Optional: Full path to genomic_data/ (e.g., "genomeark/species/Genus_species/id/somatic/genomic_data/") for species with non-standard GenomeArk directory structure')
 	group.add_argument('-x','--suffix', required=False, help='Optional: Suffix to distinguish multiple entries with same assembly ID (e.g., "somatic", "gametic"). Creates working ID as {assembly}_{suffix}')
 	args = parser.parse_args()
 

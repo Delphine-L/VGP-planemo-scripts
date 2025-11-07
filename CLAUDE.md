@@ -30,8 +30,9 @@ VGP-planemo-scripts is a Python-based pipeline automation system for running VGP
 - Generates tracking table with file paths for downstream workflows
 - Supports adding new species to existing tables
 - **Custom paths**: Handles species with non-standard GenomeArk directory structure via optional third column
-  - Standard path: `{assembly_id}/genomic_data/`
-  - Custom path: `{assembly_id}/{custom_path}/genomic_data/` (e.g., "somatic", "gametic")
+  - Standard path: auto-constructed as `genomeark/species/{species}/{assembly}/genomic_data/`
+  - Custom path: full path provided in column 3 (e.g., `genomeark/species/Genus_species/id/somatic/genomic_data/`)
+  - Allows any nested directory structure
 - **Multiple assemblies**: Optional fourth column (suffix) enables running multiple assemblies from the same species
   - Creates unique working IDs: `{assembly_id}_{suffix}` (e.g., "kcIchGage1_somatic", "kcIchGage1_gametic")
   - Each entry gets separate directories, metadata, and Galaxy histories
@@ -139,8 +140,9 @@ python batch_vgp_run/get_urls.py -t species_list_with_custom.tsv
 
 # Multiple assemblies from same species (4 columns with suffix)
 # Example: somatic and gametic assemblies from same species
-# Ichthyomyzon_gagei	kcIchGage1	somatic	somatic
-# Ichthyomyzon_gagei	kcIchGage1	gametic	gametic
+# Column 3 = full path to genomic_data/, Column 4 = suffix for working ID
+# Ichthyomyzon_gagei	kcIchGage1	genomeark/species/Ichthyomyzon_gagei/kcIchGage1/somatic/genomic_data/	somatic
+# Ichthyomyzon_gagei	kcIchGage1	genomeark/species/Ichthyomyzon_gagei/kcIchGage1/gametic/genomic_data/	gametic
 # Creates working IDs: kcIchGage1_somatic and kcIchGage1_gametic
 python batch_vgp_run/get_urls.py -t species_list_multiple.tsv
 ```
@@ -252,16 +254,17 @@ python batch_vgp_run/get_urls.py -t tracking_runs_species_list.tsv \
 ### Custom GenomeArk Paths and Multiple Assemblies
 - Some species have non-standard directory structures in GenomeArk
 - Standard path: `genomeark/species/{species_name}/{assembly_id}/genomic_data/`
-- Custom path: `genomeark/species/{species_name}/{assembly_id}/{custom_path}/genomic_data/`
-- Examples of custom paths: `somatic`, `gametic` (for diploid/polyploid assemblies)
-- Specify via optional third column in input table (Species, Assembly, Custom_Path, [Suffix])
+- Custom path: Full path to genomic_data directory provided in column 3
+- **Column 3 format**: Complete path to `genomic_data/`
+  - Example: `genomeark/species/Ichthyomyzon_gagei/kcIchGage1/gametic/genomic_data/`
+  - Can be any nested structure (e.g., `genomeark/species/Genus_species/id/some/nested/path/genomic_data/`)
 - Empty or missing Custom_Path values default to standard path structure
 
 **Multiple assemblies from the same species:**
 - Use optional 4th column (Suffix) to distinguish multiple entries with same Species/Assembly
 - Example: Running both somatic and gametic assemblies
-  - Row 1: `Ichthyomyzon_gagei  kcIchGage1  somatic  somatic`
-  - Row 2: `Ichthyomyzon_gagei  kcIchGage1  gametic  gametic`
+  - Row 1: `Ichthyomyzon_gagei  kcIchGage1  genomeark/species/Ichthyomyzon_gagei/kcIchGage1/somatic/genomic_data/  somatic`
+  - Row 2: `Ichthyomyzon_gagei  kcIchGage1  genomeark/species/Ichthyomyzon_gagei/kcIchGage1/gametic/genomic_data/  gametic`
 - Creates working IDs: `kcIchGage1_somatic` and `kcIchGage1_gametic`
 - Each entry gets separate:
   - Metadata dictionary key
