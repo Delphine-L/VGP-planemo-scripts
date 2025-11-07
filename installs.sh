@@ -22,70 +22,87 @@ pip install -r requirements.txt
 echo ""
 echo "Installing NCBI datasets command-line tool..."
 
-# Detect platform
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    DATASETS_URL="https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/mac/datasets"
-    echo "Detected macOS platform"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    # Linux
-    DATASETS_URL="https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets"
-    echo "Detected Linux platform"
+# Check if datasets is already installed
+if command -v datasets > /dev/null 2>&1; then
+    echo "✓ NCBI datasets tool is already installed"
+    datasets --version
+    SKIP_DATASETS_INSTALL=true
 else
-    echo "Warning: Unsupported platform '$OSTYPE'. Please install NCBI datasets manually from:"
-    echo "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/"
-    exit 1
+    SKIP_DATASETS_INSTALL=false
 fi
 
-# Download datasets binary
-# Allow custom install directory (useful for SLURM/HPC with noexec home directories)
-INSTALL_DIR="${DATASETS_INSTALL_DIR:-$HOME/.local/bin}"
-mkdir -p "$INSTALL_DIR"
+if [ "$SKIP_DATASETS_INSTALL" = "false" ]; then
+    # Detect platform using uname (more portable than $OSTYPE)
+    PLATFORM=$(uname -s)
+    case "$PLATFORM" in
+        Darwin*)
+            # macOS
+            DATASETS_URL="https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/mac/datasets"
+            echo "Detected macOS platform"
+            ;;
+        Linux*)
+            # Linux
+            DATASETS_URL="https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets"
+            echo "Detected Linux platform"
+            ;;
+        *)
+            echo "Warning: Unsupported platform '$PLATFORM'. Please install NCBI datasets manually from:"
+            echo "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/"
+            exit 1
+            ;;
+    esac
 
-echo "Downloading NCBI datasets tool from $DATASETS_URL..."
-echo "Installing to: $INSTALL_DIR"
-curl -o "$INSTALL_DIR/datasets" "$DATASETS_URL"
-chmod +x "$INSTALL_DIR/datasets"
+    # Download datasets binary
+    # Allow custom install directory (useful for SLURM/HPC with noexec home directories)
+    INSTALL_DIR="${DATASETS_INSTALL_DIR:-$HOME/.local/bin}"
+    mkdir -p "$INSTALL_DIR"
 
-# Check if the directory allows execution
-if ! "$INSTALL_DIR/datasets" --version &> /dev/null; then
-    echo ""
-    echo "WARNING: Could not execute datasets from $INSTALL_DIR"
-    echo "This might be because the filesystem is mounted with 'noexec' flag."
-    echo "To check: mount | grep $(df $INSTALL_DIR | tail -1 | awk '{print \$1}')"
-    echo ""
-    echo "To install to a different location, run:"
-    echo "  DATASETS_INSTALL_DIR=/alternative/path bash installs.sh"
-    echo "Then add that path to your PATH variable."
-fi
+    echo "Downloading NCBI datasets tool from $DATASETS_URL..."
+    echo "Installing to: $INSTALL_DIR"
+    curl -o "$INSTALL_DIR/datasets" "$DATASETS_URL"
+    chmod +x "$INSTALL_DIR/datasets"
 
-# Check if ~/.local/bin is in PATH
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    echo ""
-    echo "Warning: $INSTALL_DIR is not in your PATH"
-    echo "Add the following line to your ~/.bashrc or ~/.zshrc:"
-    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-    echo ""
-    echo "Then run: source ~/.bashrc  (or source ~/.zshrc)"
+    # Check if the directory allows execution
+    if ! "$INSTALL_DIR/datasets" --version > /dev/null 2>&1; then
+        echo ""
+        echo "WARNING: Could not execute datasets from $INSTALL_DIR"
+        echo "This might be because the filesystem is mounted with 'noexec' flag."
+        echo "To check: mount | grep \$(df $INSTALL_DIR | tail -1 | awk '{print \$1}')"
+        echo ""
+        echo "To install to a different location, run:"
+        echo "  DATASETS_INSTALL_DIR=/alternative/path bash installs.sh"
+        echo "Then add that path to your PATH variable."
+    fi
+
+    # Check if install dir is in PATH (using grep for POSIX compatibility)
+    if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
+        echo ""
+        echo "Warning: $INSTALL_DIR is not in your PATH"
+        echo "Add the following line to your ~/.bashrc or ~/.zshrc:"
+        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo ""
+        echo "Then run: source ~/.bashrc  (or source ~/.zshrc)"
+    fi
 fi
 
 # Verify installation
 echo ""
 echo "Verifying installations..."
-if command -v datasets &> /dev/null; then
+if command -v datasets > /dev/null 2>&1; then
     echo "✓ NCBI datasets tool installed successfully"
     datasets --version
 else
-    echo "✗ NCBI datasets tool not found in PATH. Please add $INSTALL_DIR to your PATH"
+    echo "✗ NCBI datasets tool not found in PATH"
+    echo "  Please ensure datasets is installed and in your PATH"
 fi
 
-if command -v aws &> /dev/null; then
+if command -v aws > /dev/null 2>&1; then
     echo "✓ AWS CLI installed successfully"
 else
     echo "✗ AWS CLI not found"
 fi
 
-if command -v planemo &> /dev/null; then
+if command -v planemo > /dev/null 2>&1; then
     echo "✓ Planemo installed successfully"
 else
     echo "✗ Planemo not found"
