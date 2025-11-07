@@ -70,25 +70,46 @@ def main():
         print("=" * 60)
 
         # Read input table (can have 2-4 columns: Species, Assembly, [Custom_Path], [Suffix])
-        infos = pandas.read_csv(args.species, header=None, sep="\t")
+        # Try to detect if the file has headers by checking the first line
+        try:
+            # First, peek at the file to see if it has headers
+            with open(args.species, 'r') as f:
+                first_line = f.readline().strip().split('\t')
+                # Check if first line looks like a header (contains "Species" or "Assembly")
+                has_header = any(col in ['Species', 'Assembly', 'Custom_Path', 'Suffix', 'Working_Assembly'] for col in first_line)
 
-        # Handle optional columns
-        if len(infos.columns) == 4:
-            infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path', 3: 'Suffix'}, inplace=True)
-            has_custom_path = True
-            has_suffix = True
-            print("Detected 4 columns (Species, Assembly, Custom_Path, Suffix)")
-        elif len(infos.columns) == 3:
-            infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path'}, inplace=True)
-            has_custom_path = True
-            has_suffix = False
-            print("Detected optional third column for custom GenomeArk paths")
-        elif len(infos.columns) == 2:
-            infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
-            has_custom_path = False
-            has_suffix = False
+            # Read with appropriate header setting
+            if has_header:
+                infos = pandas.read_csv(args.species, header=0, sep="\t")
+                print("Detected existing tracking table with headers - will fetch URLs for missing data")
+            else:
+                infos = pandas.read_csv(args.species, header=None, sep="\t")
+        except Exception as e:
+            raise SystemExit(f"Error reading input table {args.species}: {e}\n\nPlease ensure all rows have the same number of tab-separated columns.")
+
+        # Handle optional columns - only rename if we read without headers
+        if not has_header:
+            if len(infos.columns) == 4:
+                infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path', 3: 'Suffix'}, inplace=True)
+                has_custom_path = True
+                has_suffix = True
+                print("Detected 4 columns (Species, Assembly, Custom_Path, Suffix)")
+            elif len(infos.columns) == 3:
+                infos.rename(columns={0: 'Species', 1: 'Assembly', 2: 'Custom_Path'}, inplace=True)
+                has_custom_path = True
+                has_suffix = False
+                print("Detected optional third column for custom GenomeArk paths")
+            elif len(infos.columns) == 2:
+                infos.rename(columns={0: 'Species', 1: 'Assembly'}, inplace=True)
+                has_custom_path = False
+                has_suffix = False
+            else:
+                raise SystemExit(f"Error: When using --fetch-urls, the input table must have 2-4 columns (Species, Assembly, [Custom_Path], [Suffix]). Found {len(infos.columns)} columns.")
         else:
-            raise SystemExit(f"Error: When using --fetch-urls, the input table must have 2-4 columns (Species, Assembly, [Custom_Path], [Suffix]). Found {len(infos.columns)} columns.")
+            # File already has headers, just detect which columns are present
+            has_custom_path = 'Custom_Path' in infos.columns
+            has_suffix = 'Suffix' in infos.columns
+            print(f"Columns found: {', '.join(infos.columns)}")
 
         # Fetch URLs for each species
         list_hifi_urls = []
@@ -97,24 +118,39 @@ def main():
         list_hic_r_urls = []
 
         for i, row in infos.iterrows():
-            species_name = row['Species']
-            species_id = row['Assembly']
+            # Strip whitespace from all string columns
+            species_name = str(row['Species']).strip()
+            species_id = str(row['Assembly']).strip()
 
             # Get custom path if available and not empty
             custom_path = None
             if has_custom_path:
-                custom_path = row['Custom_Path']
-                if pandas.isna(custom_path) or str(custom_path).strip() == '':
-                    custom_path = None
+                cp_value = row['Custom_Path']
+                if not pandas.isna(cp_value):
+                    cp_stripped = str(cp_value).strip()
+                    if cp_stripped:
+                        custom_path = cp_stripped
 
             # Get suffix if available
             suffix = None
             if has_suffix:
-                suffix = row['Suffix']
-                if pandas.isna(suffix) or str(suffix).strip() == '':
-                    suffix = None
+                suffix_value = row['Suffix']
+                if not pandas.isna(suffix_value):
+                    suffix_stripped = str(suffix_value).strip()
+                    if suffix_stripped:
+                        suffix = suffix_stripped
 
             display_id = f"{species_id}_{suffix}" if suffix else species_id
+
+            # Check if URLs already exist (when using existing tracking table)
+            if 'Hifi_reads' in infos.columns and pandas.notna(row.get('Hifi_reads')) and str(row.get('Hifi_reads')).strip() != '' and str(row.get('Hifi_reads')) != 'NA':
+                print(f"Skipping {display_id} - URLs already present")
+                list_hifi_urls.append(row['Hifi_reads'])
+                list_hic_type.append(row.get('HiC_Type', 'NA'))
+                list_hic_f_urls.append(row.get('HiC_forward_reads', 'NA'))
+                list_hic_r_urls.append(row.get('HiC_reverse_reads', 'NA'))
+                continue
+
             print(f"Fetching URLs for {display_id} ({species_name})...")
 
             try:
@@ -134,17 +170,31 @@ def main():
         if not has_suffix:
             infos['Suffix'] = ''
 
-        # Create Working_Assembly column (used as unique key in metadata)
-        infos['Working_Assembly'] = infos.apply(
-            lambda row: f"{row['Assembly']}_{row['Suffix']}" if row['Suffix'] and str(row['Suffix']).strip() else row['Assembly'],
-            axis=1
-        )
+        # Create Working_Assembly column if it doesn't exist (used as unique key in metadata)
+        if 'Working_Assembly' not in infos.columns:
+            def make_working_assembly(row):
+                assembly = str(row['Assembly']).strip()
+                if 'Suffix' in row and row['Suffix']:
+                    suffix = str(row['Suffix']).strip()
+                    if suffix:
+                        return f"{assembly}_{suffix}"
+                return assembly
+            infos['Working_Assembly'] = infos.apply(make_working_assembly, axis=1)
 
-        # Add URLs to dataframe
-        infos['Hifi_reads'] = list_hifi_urls
-        infos['HiC_Type'] = list_hic_type
-        infos['HiC_forward_reads'] = list_hic_f_urls
-        infos['HiC_reverse_reads'] = list_hic_r_urls
+        # Update URLs in dataframe (only for rows we fetched)
+        if not has_header or 'Hifi_reads' not in infos.columns:
+            # New table or no existing URL columns - set all rows
+            infos['Hifi_reads'] = list_hifi_urls
+            infos['HiC_Type'] = list_hic_type
+            infos['HiC_forward_reads'] = list_hic_f_urls
+            infos['HiC_reverse_reads'] = list_hic_r_urls
+        else:
+            # Existing table with URL columns - update only rows we fetched
+            for idx, (hifi, hic_t, hic_f, hic_r) in enumerate(zip(list_hifi_urls, list_hic_type, list_hic_f_urls, list_hic_r_urls)):
+                infos.at[idx, 'Hifi_reads'] = hifi
+                infos.at[idx, 'HiC_Type'] = hic_t
+                infos.at[idx, 'HiC_forward_reads'] = hic_f
+                infos.at[idx, 'HiC_reverse_reads'] = hic_r
 
         # Save tracking table
         output_table = "tracking_runs_" + os.path.basename(args.species)
@@ -493,14 +543,17 @@ def main():
             json.dump(dico_workflows,json_file , indent=4)
             
         for i, _ in infos.iterrows():
-            spec_name=infos.iloc[i]['Species']
-            assembly_id=infos.iloc[i]['Assembly']
+            # Strip whitespace from all string columns
+            spec_name = str(infos.iloc[i]['Species']).strip()
+            assembly_id = str(infos.iloc[i]['Assembly']).strip()
 
             # Use Working_Assembly as the key if it exists (for species with suffixes)
             # Otherwise fall back to Assembly for backward compatibility
             if 'Working_Assembly' in infos.columns:
-                working_assembly = infos.iloc[i]['Working_Assembly']
-                if pandas.isna(working_assembly) or str(working_assembly).strip() == '':
+                wa_value = infos.iloc[i]['Working_Assembly']
+                if not pandas.isna(wa_value) and str(wa_value).strip() != '':
+                    working_assembly = str(wa_value).strip()
+                else:
                     working_assembly = assembly_id
             else:
                 working_assembly = assembly_id

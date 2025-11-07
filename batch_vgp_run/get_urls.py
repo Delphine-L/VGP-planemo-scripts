@@ -175,22 +175,27 @@ def main():
 			raise SystemExit(f"Error: Input table must have 2, 3, or 4 columns (Species, Assembly, [Custom_Path], [Suffix]). Found {len(infos.columns)} columns.")
 
 		for i, row in infos.iterrows():
-			species_name = row['Species']
-			species_id = row['Assembly']
+			# Strip whitespace from all string columns
+			species_name = str(row['Species']).strip()
+			species_id = str(row['Assembly']).strip()
 
 			# Get custom path if available and not empty
 			custom_path = None
 			if has_custom_path:
-				custom_path = row['Custom_Path']
-				if pd.isna(custom_path) or custom_path.strip() == '':
-					custom_path = None
+				cp_value = row['Custom_Path']
+				if not pd.isna(cp_value):
+					cp_stripped = str(cp_value).strip()
+					if cp_stripped:
+						custom_path = cp_stripped
 
 			# Get suffix if available
 			suffix = None
 			if has_suffix:
-				suffix = row['Suffix']
-				if pd.isna(suffix) or str(suffix).strip() == '':
-					suffix = None
+				suffix_value = row['Suffix']
+				if not pd.isna(suffix_value):
+					suffix_stripped = str(suffix_value).strip()
+					if suffix_stripped:
+						suffix = suffix_stripped
 
 			display_id = f"{species_id}_{suffix}" if suffix else species_id
 			print(f"Fetching URLs for {display_id} ({species_name})...")
@@ -207,10 +212,14 @@ def main():
 			infos['Suffix'] = ''
 
 		# Create Working_Assembly column (used as unique key in metadata)
-		infos['Working_Assembly'] = infos.apply(
-			lambda row: f"{row['Assembly']}_{row['Suffix']}" if row['Suffix'] and str(row['Suffix']).strip() else row['Assembly'],
-			axis=1
-		)
+		def make_working_assembly(row):
+			assembly = str(row['Assembly']).strip()
+			if 'Suffix' in row and row['Suffix']:
+				suffix = str(row['Suffix']).strip()
+				if suffix:
+					return f"{assembly}_{suffix}"
+			return assembly
+		infos['Working_Assembly'] = infos.apply(make_working_assembly, axis=1)
 
 		infos['Hifi_reads'] = list_hifi_urls
 		infos['HiC_Type'] = list_hic_type

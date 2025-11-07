@@ -78,13 +78,18 @@ def main():
     list_res=[]
     commands=[]
     for i,row in infos.iterrows():
-        spec_name=infos.iloc[i]['Species']
-        assembly_id=infos.iloc[i]['Assembly']
+        # Strip whitespace from all string columns
+        spec_name = str(infos.iloc[i]['Species']).strip()
+        assembly_id = str(infos.iloc[i]['Assembly']).strip()
 
         # Use Working_Assembly if it exists (for multiple assemblies from same species)
         # Otherwise use Assembly for backward compatibility
-        if 'Working_Assembly' in infos.columns and pandas.notna(infos.iloc[i]['Working_Assembly']) and str(infos.iloc[i]['Working_Assembly']).strip() != '':
-            spec_id = infos.iloc[i]['Working_Assembly']
+        if 'Working_Assembly' in infos.columns:
+            wa_value = infos.iloc[i]['Working_Assembly']
+            if pandas.notna(wa_value) and str(wa_value).strip() != '':
+                spec_id = str(wa_value).strip()
+            else:
+                spec_id = assembly_id
         else:
             spec_id = assembly_id
 
