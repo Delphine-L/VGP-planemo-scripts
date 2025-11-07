@@ -11,3 +11,8 @@ planemo>=0.74.0
 
 # AWS CLI for GenomeArk data access (required for --fetch-urls option)
 awscli>=1.27.0
+
+# NOTE: NCBI datasets command-line tool is also required for workflow 9 (decontamination)
+# This is a standalone binary, not a Python package
+# Install using the provided installs.sh script or manually from:
+# https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/

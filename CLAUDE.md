@@ -89,8 +89,33 @@ YAML templates in `batch_vgp_run/templates/` use placeholder syntax `["field_nam
 ## Common Commands
 
 **Install dependencies:**
+
+**Recommended: Use the install script (installs Python packages + NCBI datasets tool):**
 ```bash
-pip install awscli pandas planemo npm
+bash installs.sh
+```
+
+**Manual installation:**
+```bash
+# Python dependencies
+pip install -r requirements.txt
+
+# NCBI datasets tool (required for Workflow 9 - decontamination)
+# macOS:
+curl -o ~/.local/bin/datasets https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/mac/datasets
+chmod +x ~/.local/bin/datasets
+
+# Linux:
+curl -o ~/.local/bin/datasets https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets
+chmod +x ~/.local/bin/datasets
+
+# Add to PATH if needed:
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**Quick manual install (Python packages only):**
+```bash
+pip install awscli pandas planemo bioblend pyyaml requests
 ```
 
 **Typical workflow sequence:**
