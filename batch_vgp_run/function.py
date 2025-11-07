@@ -1742,16 +1742,35 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             # Query NCBI dataset
             species_name_for_ncbi = species_name.replace("_", " ")
             try:
-                # First check if datasets command is available
+                # First check if datasets command is available in PATH
                 datasets_path = shutil.which('datasets')
+
+                # If not in PATH, check common installation locations
                 if not datasets_path:
-                    print(f"Error: 'datasets' command not found in PATH")
+                    common_locations = [
+                        os.path.expanduser('~/.local/bin/datasets'),
+                        '/usr/local/bin/datasets',
+                        '/usr/bin/datasets',
+                        os.path.join(os.environ.get('HOME', ''), '.local/bin/datasets'),
+                    ]
+                    for location in common_locations:
+                        if os.path.isfile(location) and os.access(location, os.X_OK):
+                            datasets_path = location
+                            print(f"Found datasets at {datasets_path} (not in PATH, but found in common location)")
+                            break
+
+                # If still not found, show detailed error
+                if not datasets_path:
+                    print(f"Error: 'datasets' command not found in PATH or common locations")
                     print(f"Current PATH: {os.environ.get('PATH', 'Not set')}")
-                    print(f"Please install the NCBI datasets tool:")
-                    print(f"  1. Run: bash installs.sh")
-                    print(f"  2. Or manually: curl -o ~/.local/bin/datasets https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets && chmod +x ~/.local/bin/datasets")
-                    print(f"  3. Add to PATH: export PATH=\"$HOME/.local/bin:$PATH\"")
-                    print(f"https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/")
+                    print(f"Searched locations: {', '.join(common_locations)}")
+                    print(f"")
+                    print(f"To fix this issue:")
+                    print(f"  1. If running via SLURM, add 'source ~/.bashrc' to your job script")
+                    print(f"  2. Or add 'export PATH=\"$HOME/.local/bin:$PATH\"' to your job script")
+                    print(f"  3. Or install datasets: bash installs.sh")
+                    print(f"")
+                    print(f"More info: https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/")
                     raise SystemExit(f"Failed to get taxon ID for {species_name}: datasets tool not found")
 
                 # Check if it's executable
@@ -1760,7 +1779,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     print(f"Run: chmod +x {datasets_path}")
                     raise SystemExit(f"Failed to get taxon ID for {species_name}: datasets tool not executable")
 
-                datasets_command = ['datasets', 'summary', 'taxonomy', 'taxon', species_name_for_ncbi, '--as-json-lines']
+                # Use the full path to ensure it works even if PATH is not set correctly
+                datasets_command = [datasets_path, 'summary', 'taxonomy', 'taxon', species_name_for_ncbi, '--as-json-lines']
                 data_type = subprocess.run(datasets_command, capture_output=True, text=True, check=True)
                 taxon_data = json.loads(data_type.stdout)
                 taxon_id = str(taxon_data['taxonomy']['tax_id'])
