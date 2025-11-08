@@ -778,11 +778,22 @@ def main():
     print(f"{'='*60}\n")
     print(f"Results summary: {results_status}")
 
+    # Check if all species failed
+    all_failed = all(status == "error" for status in results_status.values())
+    any_succeeded = any(status == "completed" for status in results_status.values())
+
     with open(profile_data['Metadata_directory']+'results_run'+suffix_run+'.json', "w") as json_file:
         json.dump(results_status, json_file, indent=4)
 
     with open(profile_data['Metadata_directory']+'metadata_run'+suffix_run+'.json', "w") as json_file:
         json.dump(list_metadata, json_file, indent=4)
+
+    # Exit with error if all species failed (no successful completions)
+    if all_failed or not any_succeeded:
+        print(f"\n{'='*60}")
+        print("ERROR: All species failed - no successful processing")
+        print(f"{'='*60}\n")
+        raise SystemExit(1)
 
 
 

@@ -144,15 +144,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         if return_code != 0:
             print(f"ERROR: Workflow 1 for {assembly_id} failed with return code {return_code}")
             print(f"Check log file: {log_file}")
-            mark_invocation_as_failed(
-                assembly_id,
-                list_metadata,
-                'Workflow_1',
-                'NA',  # No invocation ID when planemo fails
-                profile_data,
-                suffix_run
-            )
-            return {assembly_id: list_metadata[assembly_id]}
+            print(f"Planemo command failed - workflow was not launched. Metadata not modified.")
+            return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
         # Even if return code is 0, check log for errors (planemo sometimes exits 0 despite internal errors)
         if os.path.exists(log_file):
@@ -166,15 +159,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                             for line in error_lines[:5]:
                                 print(f"  {line}")
                             print(f"Check full log file: {log_file}")
-                            mark_invocation_as_failed(
-                                assembly_id,
-                                list_metadata,
-                                'Workflow_1',
-                                'NA',
-                                profile_data,
-                                suffix_run
-                            )
-                            return {assembly_id: list_metadata[assembly_id]}
+                            print(f"Planemo command failed - workflow was not launched. Metadata not modified.")
+                            return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
             except Exception as e:
                 print(f"Warning: Could not read log file for error checking: {e}")
 
@@ -212,7 +198,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     if not invocation_wf1 or invocation_wf1 == 'NA':
         print(f"Workflow 1 just launched for {assembly_id}, but invocation data is not yet available.")
         print(f"You can safely interrupt and resume later using the --resume flag.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
     # Update history_id from invocation (most reliable method)
     new_history_id = get_or_find_history_id(gi, list_metadata, assembly_id, invocation_wf1, is_resume)
@@ -260,7 +246,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 print(f"Workflow 1 for {assembly_id} did not complete successfully (state: {state})")
                 if state in ['failed', 'cancelled', 'error']:
                     mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_1", invocation_wf1, profile_data, suffix_run)
-                return {assembly_id: list_metadata[assembly_id]}
+                    return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
+                # Workflow still running or in other incomplete state
+                return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
         # Now check if required outputs exist
         required_wf1_outputs = ['Collection of Pacbio Data', 'Merged Meryl Database', 'GenomeScope summary', 'GenomeScope Model Parameters']
@@ -269,7 +257,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         if not outputs_ready:
             print(f"Workflow 1 for {assembly_id}: Required outputs for WF4 not yet ready. Missing: {', '.join(missing_outputs)}")
             print(f"Resume again later when Workflow 1 has progressed further.")
-            return {assembly_id: list_metadata[assembly_id]}
+            return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
         else:
             print(f"Required outputs from Workflow 1 are ready for {assembly_id}. Proceeding with Workflow 4.\n")
     else:
@@ -334,15 +322,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         if return_code != 0:
             print(f"ERROR: Workflow 4 for {assembly_id} failed with return code {return_code}")
             print(f"Check log file: {log_file}")
-            mark_invocation_as_failed(
-                assembly_id,
-                list_metadata,
-                'Workflow_4',
-                'NA',  # No invocation ID when planemo fails
-                profile_data,
-                suffix_run
-            )
-            return {assembly_id: list_metadata[assembly_id]}
+            print(f"Planemo command failed - workflow was not launched. Metadata not modified.")
+            return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
         # Even if return code is 0, check log for errors (planemo sometimes exits 0 despite internal errors)
         if os.path.exists(log_file):
@@ -357,15 +338,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                             for line in error_lines[:5]:  # Show first 5 error lines
                                 print(f"  {line}")
                             print(f"Check full log file: {log_file}")
-                            mark_invocation_as_failed(
-                                assembly_id,
-                                list_metadata,
-                                'Workflow_4',
-                                'NA',
-                                profile_data,
-                                suffix_run
-                            )
-                            return {assembly_id: list_metadata[assembly_id]}
+                            print(f"Planemo command failed - workflow was not launched. Metadata not modified.")
+                            return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
             except Exception as e:
                 print(f"Warning: Could not read log file for error checking: {e}")
 
@@ -399,7 +373,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     if not invocation_wf4 or invocation_wf4 == 'NA':
         print(f"Workflow 4 just launched for {assembly_id}, but invocation data is not yet available.")
         print(f"You can safely interrupt and resume later using the --resume flag.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
     # Get workflow 4 invocation object for preparing downstream workflows
     try:
@@ -408,7 +382,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         print(f"Warning: Could not get Workflow 4 invocation details: {e}")
         print(f"Workflow 4 may still be initializing. Waiting for Galaxy to register the invocation.")
         print(f"You can safely interrupt and resume later using the --resume flag.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
     # Store dataset IDs for Workflow 4
     try:
@@ -606,7 +580,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     print(f"Workflow 4 for {assembly_id} did not complete successfully (state: {state})")
                     if state in ['failed', 'cancelled', 'error']:
                         mark_invocation_as_failed(assembly_id, list_metadata, "Workflow_4", invocation_wf4, profile_data, suffix_run)
-                    return {assembly_id: list_metadata[assembly_id]}
+                        return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
+                    # Workflow still running or in other incomplete state
+                    return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
             # Now check if required outputs exist (needed for WF8)
             required_wf4_outputs = ['usable hap1 gfa', 'usable hap2 gfa', 'Estimated Genome size', 'Trimmed Hi-C reads']
@@ -624,7 +600,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if not outputs_ready:
                     print(f"Workflow 4 for {assembly_id}: Required outputs not ready after polling.")
                     print(f"Resume again later when Workflow 4 has progressed further.")
-                    return {assembly_id: list_metadata[assembly_id]}
+                    return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
             print(f"\n=== Required outputs from Workflow 4 are ready for {assembly_id}. Preparing Workflow 8 for both haplotypes ===\n")
         else:
@@ -662,14 +638,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if return_code != 0:
                     print(f"  ERROR: Workflow 8 ({haplotype_name}) failed with return code {return_code}")
                     print(f"  Check log file: {log_file}")
-                    mark_invocation_as_failed(
-                        assembly_id,
-                        list_metadata,
-                        wf8_key,
-                        'NA',  # No invocation ID when planemo fails
-                        profile_data,
-                        suffix_run
-                    )
+                    print(f"  Planemo command failed - workflow was not launched. Metadata not modified.")
                     return
 
                 # Even if return code is 0, check log for errors
@@ -684,14 +653,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                                     for line in error_lines[:5]:
                                         print(f"    {line}")
                                     print(f"  Check full log file: {log_file}")
-                                    mark_invocation_as_failed(
-                                        assembly_id,
-                                        list_metadata,
-                                        wf8_key,
-                                        'NA',
-                                        profile_data,
-                                        suffix_run
-                                    )
+                                    print(f"  Planemo command failed - workflow was not launched. Metadata not modified.")
                                     return
                     except Exception as e:
                         print(f"  Warning: Could not read log file for error checking: {e}")
@@ -783,7 +745,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     if not wf8_invocations:
         print(f"No Workflow 8 invocations found for {assembly_id}. Waiting for Workflow 8 to be launched.")
         print(f"Invocation data has been saved. You can safely interrupt and resume later using the --resume flag.\n")
-        return {assembly_id: list_metadata[assembly_id]}
+        return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
     # For --resume mode: Check if invocations are complete, poll if needed, then check outputs
     # For normal mode: Just proceed (trust planemo launched WF8 successfully)
@@ -818,7 +780,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     if final_state in ['failed', 'cancelled', 'error']:
                         wf8_key = f"Workflow_8_{hap_code}"
                         mark_invocation_as_failed(assembly_id, list_metadata, wf8_key, inv_id, profile_data, suffix_run)
-                    return {assembly_id: list_metadata[assembly_id]}
+                        return {'status': 'error', 'metadata': {assembly_id: list_metadata[assembly_id]}}
+                    # Workflow still running or in other incomplete state
+                    return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
         # Now check if required outputs exist from all haplotypes
         required_wf8_outputs = ['Reconciliated Scaffolds: fasta']
@@ -838,7 +802,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if not outputs_ready:
                     print(f"  Haplotype {hap_mapping[hap_code]}: Missing: {', '.join(missing_outputs)}")
             print(f"Resume again later when Workflow 8 has progressed further.")
-            return {assembly_id: list_metadata[assembly_id]}
+            return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
         else:
             print(f"\n=== Required outputs from all Workflow 8 invocations are ready for {assembly_id}. Preparing Workflow 9 for both haplotypes ===\n")
     else:
@@ -1059,14 +1023,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if return_code != 0:
                     print(f"  ERROR: Workflow 9 ({haplotype_name}) failed with return code {return_code}")
                     print(f"  Check log file: {log_file}")
-                    mark_invocation_as_failed(
-                        assembly_id,
-                        list_metadata,
-                        wf9_key,
-                        'NA',  # No invocation ID when planemo fails
-                        profile_data,
-                        suffix_run
-                    )
+                    print(f"  Planemo command failed - workflow was not launched. Metadata not modified.")
                     return
 
                 # Even if return code is 0, check log for errors
@@ -1081,14 +1038,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                                     for line in error_lines[:5]:
                                         print(f"    {line}")
                                     print(f"  Check full log file: {log_file}")
-                                    mark_invocation_as_failed(
-                                        assembly_id,
-                                        list_metadata,
-                                        wf9_key,
-                                        'NA',
-                                        profile_data,
-                                        suffix_run
-                                    )
+                                    print(f"  Planemo command failed - workflow was not launched. Metadata not modified.")
                                     return
                     except Exception as e:
                         print(f"  Warning: Could not read log file for error checking: {e}")
@@ -1243,14 +1193,9 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 if return_code != 0:
                     print(f"ERROR: Pre-curation workflow for {assembly_id} failed with return code {return_code}")
                     print(f"Check log file: {list_metadata[assembly_id]['planemo_logs']['Workflow_PreCuration']}")
-                    mark_invocation_as_failed(
-                        assembly_id,
-                        list_metadata,
-                        'Workflow_PreCuration',
-                        'NA',  # No invocation ID when planemo fails
-                        profile_data,
-                        suffix_run
-                    )
+                    print(f"Planemo command failed - workflow was not launched. Continuing without PreCuration.")
+                    # Don't mark as failed since planemo error means it wasn't even launched
+                    # Just continue without PreCuration
                 else:
                     # Get invocation ID from completed JSON
                     try:
@@ -1273,7 +1218,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     # Save final metadata after all workflows complete
     save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
-    return {assembly_id: list_metadata[assembly_id]}
+    return {'status': 'success', 'metadata': {assembly_id: list_metadata[assembly_id]}}
 
 
 
@@ -1307,31 +1252,38 @@ def process_species_wrapper(species_id, list_metadata, profile_data, dico_workfl
 
         # Thread-safe update of shared metadata
         with results_lock:
-            if result and species_id in result:
-                list_metadata[species_id] = result[species_id]
-                results_status[species_id] = "completed"
-                print(f"\n✓ Successfully completed: {species_id}\n")
+            if result and 'metadata' in result and species_id in result['metadata']:
+                status = result.get('status', 'unknown')
+                list_metadata[species_id] = result['metadata'][species_id]
 
-                # Save updated global metadata file
-                try:
-                    suffix_run = profile_data.get('Suffix', '')
-                    metadata_file = f"{profile_data['Metadata_directory']}metadata_run{suffix_run}.json"
-                    with open(metadata_file, 'w') as json_file:
-                        json.dump(list_metadata, json_file, indent=4)
-                    print(f"Updated global metadata file after {species_id} completion")
+                if status == 'success':
+                    results_status[species_id] = "completed"
+                    print(f"\n✓ Successfully completed: {species_id}\n")
 
-                    # Delete per-species file after successful merge
-                    species_metadata_file = f"{profile_data['Metadata_directory']}metadata_{species_id}_run{suffix_run}.json"
-                    if os.path.exists(species_metadata_file):
-                        os.remove(species_metadata_file)
-                        print(f"Removed per-species metadata file for {species_id}")
-                except Exception as e:
-                    print(f"Warning: Could not update global metadata or remove per-species file for {species_id}: {e}")
+                    # Save updated global metadata file
+                    try:
+                        suffix_run = profile_data.get('Suffix', '')
+                        metadata_file = f"{profile_data['Metadata_directory']}metadata_run{suffix_run}.json"
+                        with open(metadata_file, 'w') as json_file:
+                            json.dump(list_metadata, json_file, indent=4)
+                        print(f"Updated global metadata file after {species_id} completion")
+
+                        # Delete per-species file after successful merge
+                        species_metadata_file = f"{profile_data['Metadata_directory']}metadata_{species_id}_run{suffix_run}.json"
+                        if os.path.exists(species_metadata_file):
+                            os.remove(species_metadata_file)
+                            print(f"Removed per-species metadata file for {species_id}")
+                    except Exception as e:
+                        print(f"Warning: Could not update global metadata or remove per-species file for {species_id}: {e}")
+                else:
+                    # status == 'error' - planemo failed
+                    results_status[species_id] = "error"
+                    print(f"\n✗ Completed with errors: {species_id}\n")
             else:
                 results_status[species_id] = "completed (no result data)"
                 print(f"\n⚠ Completed with warnings: {species_id}\n")
 
-        return (species_id, "success", None)
+        return (species_id, result.get('status', 'unknown') if result else 'error', None)
 
     except Exception as e:
         error_msg = f"Error: {str(e)}"
