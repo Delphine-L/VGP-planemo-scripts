@@ -16,6 +16,7 @@ import time
 import threading
 import subprocess
 from datetime import datetime
+from bioblend.galaxy import GalaxyInstance
 from batch_vgp_run.galaxy_client import (
     get_or_find_history_id,
     check_invocation_complete,
