@@ -81,10 +81,11 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         res_file=list_metadata[assembly_id]["invocation_jsons"][key]
 
         # Use history_id if we have it (from resume), otherwise use history_name
+        # Properly quote all paths and parameters to handle spaces and special characters
         if history_id:
-            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --test_output_json "+res_file+" > "+log_file+" 2>&1"
+            command_lines[key]=f'planemo run "{workflow_path}" "{job_yaml}" --engine external_galaxy --galaxy_url "{galaxy_instance}" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "{galaxy_key}" --history_id "{history_id}" --test_output_json "{res_file}" > "{log_file}" 2>&1'
         else:
-            command_lines[key]="planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_name "+history_name+" --test_output_json "+res_file+" > "+log_file+" 2>&1"
+            command_lines[key]=f'planemo run "{workflow_path}" "{job_yaml}" --engine external_galaxy --galaxy_url "{galaxy_instance}" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "{galaxy_key}" --history_name "{history_name}" --test_output_json "{res_file}" > "{log_file}" 2>&1'
 
     # === WORKFLOW 1 ===
     invocation_wf1 = None
@@ -203,7 +204,7 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 job_yaml = list_metadata[assembly_id]["job_files"][key]
                 log_file = list_metadata[assembly_id]["planemo_logs"][key]
                 res_file = list_metadata[assembly_id]["invocation_jsons"][key]
-                command_lines[key] = "planemo run "+workflow_path+" "+job_yaml+" --engine external_galaxy --galaxy_url "+galaxy_instance+" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "+galaxy_key+" --history_id "+history_id+" --test_output_json "+res_file+" > "+log_file
+                command_lines[key] = f'planemo run "{workflow_path}" "{job_yaml}" --engine external_galaxy --galaxy_url "{galaxy_instance}" --simultaneous_uploads --check_uploads_ok --galaxy_user_key "{galaxy_key}" --history_id "{history_id}" --test_output_json "{res_file}" > "{log_file}" 2>&1'
     elif new_history_id:
         history_id = new_history_id
 
