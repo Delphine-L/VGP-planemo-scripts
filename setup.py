@@ -38,20 +38,13 @@ setup(
     entry_points={
         "console_scripts": [
             # Main automated pipeline
-            "vgp-run-all=batch_vgp_run.run_all:main",
+            "vgp-run-all=scripts.run_all:main",
 
             # Utility scripts
-            "vgp-get-urls=batch_vgp_run.get_urls:main",
-            "vgp-download-reports=batch_vgp_run.download_reports:main",
-            "vgp-fetch-invocations=batch_vgp_run.fetch_invocation_numbers:main",
+            "vgp-download-reports=scripts.download_reports:main",
 
-            # Manual workflow preparation scripts
-            "vgp-prepare-wf0=batch_vgp_run.prepare_wf0:main",
-            "vgp-prepare-wf1=batch_vgp_run.prepare_wf1:main",
-            "vgp-prepare-wf3=batch_vgp_run.prepare_wf3:main",
-            "vgp-prepare-wf4=batch_vgp_run.prepare_wf4:main",
-            "vgp-prepare-wf8=batch_vgp_run.prepare_wf8:main",
-            "vgp-prepare-wf9=batch_vgp_run.prepare_wf9:main",
+            # Unified workflow preparation (includes URL fetching with --fetch-urls)
+            "vgp-prepare-single=scripts.prepare_single:main",
         ],
     },
     package_data={

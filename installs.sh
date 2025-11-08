@@ -18,6 +18,11 @@ echo ""
 echo "Installing Python dependencies..."
 pip install -r requirements.txt
 
+# Install VGP Planemo Scripts package (creates command-line tools)
+echo ""
+echo "Installing VGP Planemo Scripts package..."
+pip install -e .
+
 # Install NCBI datasets command-line tool
 echo ""
 echo "Installing NCBI datasets command-line tool..."
@@ -88,6 +93,16 @@ fi
 # Verify installation
 echo ""
 echo "Verifying installations..."
+
+# Check command-line tools
+if command -v vgp-run-all > /dev/null 2>&1; then
+    echo "✓ VGP command-line tools installed successfully"
+    echo "  Available commands: vgp-run-all, vgp-download-reports, vgp-prepare-single"
+else
+    echo "✗ VGP command-line tools not found"
+    echo "  Try running: pip install -e ."
+fi
+
 if command -v datasets > /dev/null 2>&1; then
     echo "✓ NCBI datasets tool installed successfully"
     datasets --version
@@ -109,5 +124,24 @@ else
 fi
 
 echo ""
-echo "Installation complete! If you see any ✗ marks above, please check your PATH settings."
+echo "============================================================"
+echo "Installation complete!"
+echo "============================================================"
+if command -v vgp-run-all > /dev/null 2>&1; then
+    echo ""
+    echo "You can now use VGP command-line tools:"
+    echo "  vgp-run-all           - Run all VGP workflows automatically"
+    echo "  vgp-prepare-single    - Prepare individual workflows (or fetch URLs with --fetch-urls)"
+    echo "  vgp-download-reports  - Download workflow reports"
+    echo ""
+    echo "Example usage:"
+    echo "  # Fetch GenomeArk URLs and prepare WF1"
+    echo "  vgp-prepare-single --fetch-urls -t species_list.tsv"
+    echo "  vgp-prepare-single --workflow 1 -t tracking_runs_species_list.tsv -p profile.yaml"
+    echo ""
+    echo "  # Or use automated pipeline with URL fetching"
+    echo "  vgp-run-all --fetch-urls -t species_list.tsv -p profile.yaml -m ./metadata --id"
+fi
+echo ""
+echo "If you see any ✗ marks above, please check your PATH settings."
 echo "For more information, see: https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/" 

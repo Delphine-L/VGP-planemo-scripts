@@ -8,41 +8,49 @@ Automated tools to run VGP assembly pipelines through planemo. Scripts designed 
 
 ## Installation
 
-### Install from PyPI (Recommended)
+### Recommended: Automated Installation Script
 
-````bash
-pip install vgp-planemo-scripts
-````
-
-### Install from source
+The easiest way to install all dependencies (Python packages + NCBI datasets tool):
 
 ````bash
 # Clone the repository
 git clone https://github.com/Delphine-L/VGP-planemo-scripts.git
 cd VGP-planemo-scripts
 
-# Install in development mode
-pip install -e .
-
-# Or install normally
-pip install .
+# Run the installation script
+bash installs.sh
 ````
 
-### Additional Requirements
+The installation script automatically:
+- Installs Python dependencies (awscli, pandas, planemo, bioblend, pyyaml, requests)
+- Downloads and installs NCBI datasets command-line tool (required for Workflow 9)
+- Detects your platform (macOS/Linux) and installs the appropriate version
+
+### Alternative: Manual Installation
+
+If you prefer to install manually:
+
+````bash
+# Install Python dependencies
+pip install awscli pandas planemo bioblend pyyaml requests
+
+# Or use requirements.txt
+pip install -r requirements.txt
+````
 
 **NCBI datasets command-line tool** (required for Workflow 9 with FCS decontamination):
 
 ````bash
-# Install following instructions at:
-# https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/
-````
+# macOS
+curl -o ~/.local/bin/datasets https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/mac/datasets
+chmod +x ~/.local/bin/datasets
 
-**AWS CLI** (included with pip installation, required for `--fetch-urls` option):
+# Linux
+curl -o ~/.local/bin/datasets https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets
+chmod +x ~/.local/bin/datasets
 
-When installing via pip, AWS CLI is installed automatically. If running from source without pip, install it manually:
-
-````bash
-pip install awscli
+# Add to PATH if needed
+export PATH="$HOME/.local/bin:$PATH"
 ````
 
 ### Verify Installation
@@ -50,74 +58,76 @@ pip install awscli
 After installation, verify the tools are available:
 
 ````bash
-# Check main pipeline tool
-vgp-run-all --help
+# Check Python dependencies
+python3 -c "import pandas, planemo, bioblend; print('Python dependencies OK')"
 
-# Check utility tools
-vgp-get-urls --help
-vgp-download-reports --help
-
-# Verify AWS CLI (for --fetch-urls option)
+# Verify AWS CLI (for GenomeArk data fetching)
 aws --version
+
+# Verify NCBI datasets (for Workflow 9 decontamination)
+datasets --version
 ````
 
-## Command-Line Tools
+## Available Scripts
 
-After installation, the following commands are available:
+After running `bash installs.sh`, you can use convenient command-line tools:
 
 **Main automated pipeline:**
-- `vgp-run-all` - Run all VGP workflows automatically (replaces `python batch_vgp_run/run_all.py`)
+- `vgp-run-all` - Run all VGP workflows automatically with dependency management
+  - Supports `--fetch-urls` to automatically get GenomeArk file paths
+
+**Unified workflow preparation:**
+- `vgp-prepare-single` - Prepare any workflow (0, 1, 4, 8, 9, precuration)
+  - Supports `--fetch-urls` to automatically get GenomeArk file paths
 
 **Utility tools:**
-- `vgp-get-urls` - Get GenomeArk file URLs for species (replaces `python batch_vgp_run/get_urls.py`)
-- `vgp-download-reports` - Download workflow reports (replaces `python batch_vgp_run/download_reports.py`)
-- `vgp-fetch-invocations` - Fetch invocation numbers from Galaxy history
+- `vgp-download-reports` - Download workflow reports from completed runs
 
-**Manual workflow preparation:**
-- `vgp-prepare-wf0` - Prepare Workflow 0 (mitogenome)
-- `vgp-prepare-wf1` - Prepare Workflow 1 (kmer profiling)
-- `vgp-prepare-wf3` - Prepare Workflow 3 (decontamination before phasing)
-- `vgp-prepare-wf4` - Prepare Workflow 4 (assembly + phasing)
-- `vgp-prepare-wf8` - Prepare Workflow 8 (scaffolding)
-- `vgp-prepare-wf9` - Prepare Workflow 9 (decontamination)
+**Without installation** (running directly from repository):
+- Replace `vgp-run-all` with `python scripts/run_all.py`
+- Replace `vgp-prepare-single` with `python scripts/prepare_single.py`
+- Replace `vgp-download-reports` with `python scripts/download_reports.py`
 
-## First step - Prepare a file with the species informations
+## First step - Get GenomeArk file URLs
 
-Create a tabulated file with the following columns:
+You can fetch GenomeArk file URLs in two ways:
 
+### Option 1: Using vgp-prepare-single (Recommended)
+
+Create a simple 2-column tabulated file:
 1. Species Name (no space, underscores) (e.g. Taeniopygia_guttata)
 2. Assembly ID (e.g. bTaeGut2)
 
-Usage:
+````bash
+# After installation
+vgp-prepare-single --fetch-urls -t species_list.tsv
+
+# Or without installation
+python scripts/prepare_single.py --fetch-urls -t species_list.tsv
+````
+
+### Option 2: Using vgp-run-all with --fetch-urls
+
+You can also fetch URLs directly when running the automated pipeline:
 
 ````bash
-# If installed via pip
-vgp-get-urls -t <Table with Species and Assembly ID>
-
-# Or if running from source
-python batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID>
+# Fetches URLs and immediately starts the pipeline
+vgp-run-all --fetch-urls -t species_list.tsv -p profile.yaml -m ./metadata --id
 ````
 
 ### Output:
 
-A tabular file containing the names of PacBio, Arima, and Bionano files on Genomark
-
-e.g.
+Both methods generate a tracking table (`tracking_runs_species_list.tsv`) containing the names of PacBio, Arima, and Bionano files on GenomeArk:
 
 ````tabular
-Taeniopygia_guttata	bTaeGut2	m54306U_210519_154448.hifi_reads.fastq.gz m54306U_210521_004211.hifi_reads.fastq.gz m54306Ue_210629_211205.hifi_reads.fastq.gz m54306Ue_210719_083927.hifi_reads.fastq.gz m64055e_210624_223222.hifi_reads.fastq.gz	bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L1_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L2_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L3_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L4_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L5_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L6_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L7_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L8_R1.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMMCCXY_L6_R1.fq.gz	bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L1_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L2_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L3_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L4_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L5_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L6_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L7_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMFCCXY_L8_R2.fq.gz bTaeGut2_ARI8_001_USPD16084394-AK5146_HJFMMCCXY_L6_R2.fq.gz	bTaeGut2_Saphyr_DLE1_3172351.cmap
+Taeniopygia_guttata	bTaeGut2	m54306U_210519_154448.hifi_reads.fastq.gz m54306U_210521_004211.hifi_reads.fastq.gz...
 ````
 
-### Add a species to the generated table
-
-Usage:
+### Add a species to an existing table
 
 ````bash
-# If installed via pip
-vgp-get-urls -t <Table with Species and Assembly ID> --add -s <Species Name> -a <Species ID>
-
-# Or if running from source
-python batch_vgp_run/get_urls.py -t <Table with Species and Assembly ID> --add -s <Species Name> -a <Species ID>
+# Using standalone script
+python scripts/get_urls.py -t tracking_runs_species_list.tsv --add -s <Species_Name> -a <Assembly_ID>
 ````
 
 ## Automated Pipeline - Run All Workflows (run_all.py)
@@ -198,33 +208,25 @@ wf9_version: fcs  # Use 'fcs' (default, NCBI FCS-GX) or 'legacy' (Kraken2)
 **Recommended: Use existing workflows in Galaxy** (--id):
 
 ````bash
-# If installed via pip
-vgp-run-all \
+python scripts/run_all.py \
   -t <Table with file paths> \
   -p <Profile YAML file> \
   -m <Metadata directory> \
   --id \
   [-s <Suffix>] \
   [-c <Concurrent processes>]
-
-# Or if running from source
-python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --id
 ````
 
 **Alternative: Use workflow versions** (--version, downloads workflows automatically):
 
 ````bash
-# If installed via pip
-vgp-run-all \
+python scripts/run_all.py \
   -t <Table with file paths> \
   -p <Profile YAML file> \
   -m <Metadata directory> \
   --version \
   [-s <Suffix>] \
   [-c <Concurrent processes>]
-
-# Or if running from source
-python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --version
 ````
 
 **Automatic URL fetching** (--fetch-urls, fetches GenomeArk file paths automatically):
@@ -232,8 +234,7 @@ python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --vers
 Use this option when your input table only contains Species and Assembly columns (2 columns, no headers). The script will automatically fetch file URLs from GenomeArk.
 
 ````bash
-# If installed via pip
-vgp-run-all \
+python scripts/run_all.py \
   -t <Simple species table> \
   -p <Profile YAML file> \
   -m <Metadata directory> \
@@ -247,7 +248,7 @@ vgp-run-all \
 #   Taeniopygia_guttata	bTaeGut2
 #   Corvus_moneduloides	bCorMon1
 
-vgp-run-all -t species_list.tsv -p profile.yaml -m ./metadata --fetch-urls --id
+python scripts/run_all.py -t species_list.tsv -p profile.yaml -m ./metadata --fetch-urls --id
 
 # Output:
 # ============================================================
@@ -262,13 +263,12 @@ vgp-run-all -t species_list.tsv -p profile.yaml -m ./metadata --fetch-urls --id
 # ============================================================
 ````
 
-**Note**: The `--fetch-urls` option requires AWS CLI (included with pip installation). It cannot be used with `--resume`.
+**Note**: The `--fetch-urls` option requires AWS CLI (installed by `installs.sh` or manually via `pip install awscli`). It cannot be used with `--resume`.
 
 **Resume a previous run**:
 
 ````bash
-# If installed via pip
-vgp-run-all \
+python scripts/run_all.py \
   -t <Table with file paths> \
   -p <Profile YAML file> \
   -m <Metadata directory> \
@@ -276,16 +276,13 @@ vgp-run-all \
   [--version | --id] \
   [--retry-failed] \
   [--download-reports]
-
-# Or if running from source
-python batch_vgp_run/run_all.py -t <Table> -p <Profile> -m <Metadata dir> --resume --id
 ````
 
 **Sync metadata without launching workflows**:
 
 ````bash
 # Update metadata from Galaxy histories and optionally download reports
-vgp-run-all \
+python scripts/run_all.py \
   -t <Table with file paths> \
   -p <Profile YAML file> \
   -m <Metadata directory> \
@@ -294,24 +291,24 @@ vgp-run-all \
   [--download-reports]
 
 # Example: Cleanup after all workflows complete
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
 ````
 
 **Quiet mode and output redirection**:
 
 ````bash
 # Quiet mode: only show warnings and errors
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id --quiet
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --id --quiet
 
 # Redirect output to separate files
 # Info messages → info.log, Warnings/errors → errors.log
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id > info.log 2> errors.log
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --id > info.log 2> errors.log
 
 # All output to single file
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id > all.log 2>&1
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --id > all.log 2>&1
 
 # Quiet mode with errors to file
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --id --quiet 2> errors.log
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --id --quiet 2> errors.log
 ````
 
 ### Parameters
@@ -395,7 +392,7 @@ When using `--resume`, the script automatically checks the status of all stored 
 
 ````bash
 # Resume and check for failures (warning only)
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --resume --id
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --resume --id
 
 # Output if failures found:
 ============================================================
@@ -413,7 +410,7 @@ To automatically retry failed workflows:
 
 ````bash
 # Resume and retry all failed invocations
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --resume --id --retry-failed
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --resume --id --retry-failed
 
 # Output:
 ============================================================
@@ -474,7 +471,7 @@ Use `--sync-metadata` to update metadata from Galaxy without launching new workf
 
 ````bash
 # Sync metadata and download all reports
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
 
 # Output:
 ============================================================
@@ -513,10 +510,10 @@ Automatically download PDF reports for completed invocations when using `--resum
 
 ````bash
 # Download reports during resume
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --resume --id --download-reports
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --resume --id --download-reports
 
 # Or during metadata sync
-vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --download-reports
 
 # Output:
 📄 Report download enabled - will attempt to download PDF reports for completed invocations
@@ -535,17 +532,12 @@ vgp-run-all -t table.tsv -p profile.yaml -m ./metadata --sync-metadata --id --do
 - Must be used with `--resume` or `--sync-metadata`
 - Reports saved to paths specified in metadata
 
-**Note:** This feature can be unreliable due to Galaxy API limitations. Use the separate `vgp-download-reports` tool for more robust batch downloading.
+**Note:** This feature can be unreliable due to Galaxy API limitations. Use the separate `download_reports.py` script for more robust batch downloading.
 
 ### Example Complete Workflow
 
 ````bash
-# 1. Get species data URLs
-vgp-get-urls -t species_list.tsv
-
-# Output: species_list.tsv with file paths
-
-# 2. Create profile.yaml with Galaxy credentials and workflow IDs
+# 1. Create profile.yaml with Galaxy credentials and workflow IDs
 cat > profile.yaml <<EOF
 Galaxy_instance: https://vgp.usegalaxy.org/
 Galaxy_key: YOUR_API_KEY
@@ -557,32 +549,34 @@ Workflow_9: mno345
 wf9_version: fcs
 EOF
 
-# 3. Start the automated pipeline (processes 5 species in parallel)
+# 2. Start the automated pipeline with URL fetching (processes 5 species in parallel)
+#    This will automatically fetch GenomeArk URLs and start workflows
 vgp-run-all \
+  --fetch-urls \
   -t species_list.tsv \
   -p profile.yaml \
   -m ./metadata \
   --id \
   -c 5
 
-# 4. Check progress later (safe to run multiple times)
+# 3. Check progress later (safe to run multiple times)
 vgp-run-all \
-  -t species_list.tsv \
+  -t tracking_runs_species_list.tsv \
   -p profile.yaml \
   -m ./metadata \
   --resume \
   --id
 
-# 5. After completion: sync metadata and download all reports
+# 4. After completion: sync metadata and download all reports
 vgp-run-all \
-  -t species_list.tsv \
+  -t tracking_runs_species_list.tsv \
   -p profile.yaml \
   -m ./metadata \
   --sync-metadata \
   --id \
   --download-reports
 
-# 6. View results
+# 5. View results
 cat metadata/results_run.json
 ````
 
@@ -615,23 +609,19 @@ After workflows complete, you can download PDF reports for all finished invocati
 **Download all reports:**
 
 ````bash
-# If installed via pip
-vgp-download-reports -p <Profile YAML file> -m <Metadata directory> [-s <Suffix>]
-
-# Or if running from source
-python batch_vgp_run/download_reports.py -p <Profile> -m <Metadata dir>
+python scripts/download_reports.py -p <Profile YAML file> -m <Metadata directory> [-s <Suffix>]
 ````
 
 **Skip reports that already exist:**
 
 ````bash
-vgp-download-reports -p <Profile YAML file> -m <Metadata directory> --skip-existing
+python scripts/download_reports.py -p <Profile YAML file> -m <Metadata directory> --skip-existing
 ````
 
 **Download reports for a specific species:**
 
 ````bash
-vgp-download-reports -p <Profile YAML file> -m <Metadata directory> --species <Assembly ID>
+python scripts/download_reports.py -p <Profile YAML file> -m <Metadata directory> --species <Assembly ID>
 ````
 
 ### Parameters
@@ -659,7 +649,7 @@ Reports are saved to the paths specified in the metadata file:
 
 ````bash
 # After running run_all.py, download all reports
-vgp-download-reports -p profile.yaml -m ./metadata
+python scripts/download_reports.py -p profile.yaml -m ./metadata
 
 # Output:
 ============================================================
@@ -729,7 +719,7 @@ Workflow_PreCuration: your_workflow_id_here  # PretextMap-Generation
 echo "Workflow_PreCuration: abc123def456" >> profile.yaml
 
 # Run the pipeline as normal - pre-curation will run automatically
-vgp-run-all -t species_table.tsv -p profile.yaml -m ./metadata --id
+python scripts/run_all.py -t species_table.tsv -p profile.yaml -m ./metadata --id
 
 # Output shows pre-curation execution:
 --- Pre-Curation workflow ---

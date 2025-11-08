@@ -1,1116 +1,42 @@
 #!/usr/bin/env python3
 
+"""
+Batch processing orchestration for VGP pipeline.
+
+This module coordinates the execution of workflows across multiple species:
+- Parallel species processing with threading
+- Workflow dependency management
+- Stateless, resumable execution model
+- Invocation tracking and error handling
+"""
 
 import os
-import sys
-import requests
-import zipfile
 import json
-import shutil
-from bioblend.galaxy import GalaxyInstance
-import re
-from collections import defaultdict
 import time
-from datetime import datetime
 import threading
 import subprocess
-import logging
+from datetime import datetime
+from batch_vgp_run.galaxy_client import (
+    get_or_find_history_id,
+    check_invocation_complete,
+    check_mitohifi_failure,
+    check_required_outputs_exist,
+    poll_until_invocation_complete,
+    poll_until_outputs_ready,
+    build_invocation_cache,
+    fetch_invocation_from_history,
+    get_datasets_ids
+)
+from batch_vgp_run.metadata import save_species_metadata, mark_invocation_as_failed
+from batch_vgp_run.workflow_prep import (
+    prepare_yaml_wf4,
+    prepare_yaml_wf8,
+    prepare_yaml_wf0,
+    prepare_yaml_wf9,
+    prepare_yaml_precuration
+)
+from batch_vgp_run.logging_utils import log_info, log_warning, log_error
 
-# Set up logging
-logger = logging.getLogger(__name__)
-
-def setup_logging(quiet=False):
-    """
-    Configure logging for the VGP pipeline.
-
-    Args:
-        quiet (bool): If True, only show warnings and errors
-    """
-    # Set logging level based on quiet flag
-    level = logging.WARNING if quiet else logging.INFO
-
-    # Configure logging format
-    log_format = '%(message)s'  # Simple format for user-facing messages
-
-    # Configure root logger
-    logging.basicConfig(
-        level=level,
-        format=log_format,
-        handlers=[
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
-    # Set module logger level
-    logger.setLevel(level)
-
-def log_info(message):
-    """Log informational message (suppressed in quiet mode)."""
-    logger.info(message)
-
-def log_warning(message):
-    """Log warning message to both logger and stderr (always shown)."""
-    logger.warning(message)
-    print(f"Warning: {message}", file=sys.stderr)
-
-def log_error(message):
-    """Log error message to both logger and stderr (always shown)."""
-    logger.error(message)
-    print(f"Error: {message}", file=sys.stderr)
-
-def find_duplicate_values(input_dict):
-    """
-    Finds values in a dictionary that are associated with multiple keys.
-
-    Args:
-        input_dict (dict): The dictionary to search for duplicate values.
-
-    Returns:
-        dict: A dictionary where keys are the duplicate values and values are 
-              lists of keys that share that value.
-    """
-    reversed_dict = defaultdict(list)
-    for key, value in input_dict.items():
-        reversed_dict[value].append(key)
-
-    duplicate_values = {
-        value: keys 
-        for value, keys in reversed_dict.items() 
-        if len(keys) > 1
-    }
-    return duplicate_values
-
-
-def download_file(url, save_path):
-    """
-    Downloads a file from a given URL and saves it to a specified path.
-
-    Args:
-        url (str): The URL of the file to download.
-        save_path (str): The local path to save the downloaded file.
-    """
-    try:
-        response = requests.get(url, stream=True)  # Use stream=True for large files
-        response.raise_for_status()  # Raise an exception for bad status codes
-
-        with open(save_path, 'wb') as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
-        print(f"File downloaded successfully to: {save_path}")
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error downloading file: {e}.")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-
-def get_workflow_version(path_ga):
-    release_line=''
-    try:
-        wfjson=open(path_ga)
-        gawf=json.load(wfjson)
-        if 'release' in gawf.keys():
-            release_number=gawf['release']
-        else:
-            release_number='NA'
-        return release_number
-    except FileNotFoundError:
-        print(f"Error: File not found at {file_path}")
-
-
-def get_worfklow(Compatible_version, workflow_name, workflow_repo):
-    os.makedirs(workflow_repo, exist_ok=True)
-    url_workflow="https://github.com/iwc-workflows/"+workflow_name+"/archive/refs/tags/v"+Compatible_version+".zip"
-    path_compatible=workflow_name+"-"+Compatible_version+"/"+workflow_name+".ga"
-    file_path = workflow_repo+workflow_name+".ga"
-    archive_path=workflow_repo+workflow_name+".zip"
-    if os.path.exists(file_path):
-        print('Workflow '+workflow_name+" found.\n")
-        release_number=get_workflow_version(file_path)
-    else:
-        release_number=Compatible_version
-        download_file(url_workflow, archive_path)
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            file_list = zip_ref.namelist()
-            for item in file_list:
-                if workflow_name.lower()+".ga" in item.lower():
-                    extracted_path=item
-                    zip_ref.extract(path=workflow_repo, member=item) 
-            os.remove(archive_path)
-            shutil.move(workflow_repo+extracted_path, file_path)
-            with open(file_path, 'r+') as wf_file:
-                workflow_data = json.load(wf_file)
-                workflow_data['name'] = f"{workflow_data.get('name', workflow_name)} - v{release_number}"
-                wf_file.seek(0)
-                json.dump(workflow_data, wf_file, indent=4)
-                wf_file.truncate()
-        os.rmdir(workflow_repo+workflow_name+"-"+Compatible_version+"/")
-    return file_path, release_number
-
-
-def is_workflow_id(value):
-    """
-    Detect if a value is a Galaxy workflow ID or a version number.
-
-    Galaxy workflow IDs are typically 16-character hexadecimal strings.
-    Version numbers are in format X.Y or X.Y.Z (e.g., "0.5", "1.2.3").
-
-    Args:
-        value (str): The value to check
-
-    Returns:
-        bool: True if value appears to be a workflow ID, False if it looks like a version
-    """
-    # Check if it's a hex string (workflow ID pattern)
-    if re.match(r'^[a-f0-9]{16}$', str(value)):
-        return True
-
-    # Check if it's a version number pattern (X.Y or X.Y.Z)
-    if re.match(r'^\d+\.\d+(\.\d+)?$', str(value)):
-        return False
-
-    # If neither pattern matches clearly, try to determine based on length and characters
-    # Workflow IDs are 16 chars and contain only hex digits
-    value_str = str(value)
-    if len(value_str) == 16 and all(c in '0123456789abcdef' for c in value_str.lower()):
-        return True
-
-    # Default to assuming it's a version if it contains dots
-    if '.' in value_str:
-        return False
-
-    # If still unclear, default to version (safer for backward compatibility)
-    log_warning(f"Could not clearly determine if '{value}' is a workflow ID or version. Treating as version.")
-    return False
-
-
-def upload_workflow_to_galaxy(gi, workflow_file_path):
-    """
-    Upload a workflow file to Galaxy and return its ID.
-
-    Args:
-        gi (GalaxyInstance): Connected Galaxy instance
-        workflow_file_path (str): Path to the workflow .ga file
-
-    Returns:
-        str: The workflow ID assigned by Galaxy
-
-    Raises:
-        Exception: If upload fails
-    """
-    try:
-        with open(workflow_file_path, 'r') as wf_file:
-            workflow_dict = json.load(wf_file)
-
-        # Import workflow to Galaxy
-        result = gi.workflows.import_workflow_dict(workflow_dict)
-        workflow_id = result['id']
-        workflow_name = result.get('name', 'Unknown')
-
-        print(f"✓ Uploaded workflow '{workflow_name}' to Galaxy (ID: {workflow_id})")
-        return workflow_id
-
-    except FileNotFoundError:
-        raise Exception(f"Workflow file not found: {workflow_file_path}")
-    except json.JSONDecodeError:
-        raise Exception(f"Invalid JSON in workflow file: {workflow_file_path}")
-    except Exception as e:
-        raise Exception(f"Failed to upload workflow to Galaxy: {e}")
-
-
-def resolve_workflow(gi, workflow_value, workflow_name, workflow_repo):
-    """
-    Resolve a workflow specification to a Galaxy workflow ID.
-
-    This function handles both workflow IDs and version numbers:
-    - If the value is already a workflow ID, returns it directly
-    - If the value is a version number, downloads the workflow, uploads it to Galaxy,
-      and returns the new workflow ID
-
-    Args:
-        gi (GalaxyInstance): Connected Galaxy instance
-        workflow_value (str): Either a workflow ID or version number
-        workflow_name (str): Name of the workflow (for downloading from GitHub)
-        workflow_repo (str): Directory to store downloaded workflows
-
-    Returns:
-        tuple: (workflow_id, version_number, workflow_path)
-            - workflow_id: The Galaxy workflow ID to use with planemo
-            - version_number: The version number (from file or input)
-            - workflow_path: Local path to the workflow file
-    """
-    if is_workflow_id(workflow_value):
-        # It's already an ID, use it directly
-        print(f"Using existing workflow ID: {workflow_value}")
-        return workflow_value, None, None
-    else:
-        # It's a version number, download and upload
-        print(f"Downloading workflow {workflow_name} version {workflow_value}...")
-        workflow_path, version_number = get_worfklow(workflow_value, workflow_name, workflow_repo)
-
-        print(f"Uploading workflow to Galaxy...")
-        workflow_id = upload_workflow_to_galaxy(gi, workflow_path)
-
-        return workflow_id, version_number, workflow_path
-
-
-def get_datasets_ids_from_json(json_path):
-    """
-    Extract dataset IDs from a planemo invocation JSON file.
-    When planemo runs without --no-wait, the JSON contains all output information.
-
-    Args:
-        json_path (str): Path to the planemo invocation JSON file
-
-    Returns:
-        dict: Dataset IDs mapped by output label, or None if file doesn't exist or workflow incomplete
-    """
-    if not os.path.exists(json_path):
-        return None
-
-    try:
-        with open(json_path, 'r') as f:
-            data = json.load(f)
-
-        # Get invocation details from planemo JSON structure
-        test_data = data.get('tests', [{}])[0].get('data', {})
-
-        # Check if workflow completed successfully
-        status = test_data.get('status')
-        if status not in ['success', 'error']:  # error state might still have outputs
-            return None
-
-        # Get the invocation details
-        invocation_details = test_data.get('invocation_details', {}).get('details', {})
-
-        if not invocation_details:
-            return None
-
-        # Extract invocation data from the details (similar structure to API response)
-        # The invocation details should have been populated by planemo after workflow completion
-        invocation_json_path = json_path.replace('.json', '_invocation.json')
-
-        # Try to read from the invocation details embedded in the test output
-        # Planemo should have populated this when workflow completed
-        if 'invocation' in test_data:
-            invocation = test_data['invocation']
-            return get_datasets_ids(invocation)
-
-        # Fallback: return None if invocation data not in JSON
-        return None
-
-    except (json.JSONDecodeError, KeyError, IndexError) as e:
-        print(f"Warning: Could not parse dataset IDs from {json_path}: {e}")
-        return None
-
-def get_datasets_ids(invocation):
-    dic_datasets_ids={key: value['id'] for key,value in invocation['outputs'].items()}
-    dic_datasets_ids.update({value['label']: value['id'] for key,value in invocation['inputs'].items()})
-    dic_datasets_ids.update({value['label']: value['parameter_value'] for key,value in invocation['input_step_parameters'].items()})
-    dic_datasets_ids.update({key: value['id'] for key, value in invocation['output_collections'].items()})
-    return dic_datasets_ids
-
-
-def fix_parameters(entered_suffix, entered_url):
-    if entered_suffix!='':
-        suffix_run='_'+entered_suffix
-    else:
-        suffix_run=''
-    regexurl=r'(https?:\/\/)'
-    if re.search(regexurl,entered_url):
-        validurl=entered_url
-    else:
-        validurl='https://'+entered_url
-    return suffix_run,validurl
-
-
-
-def fix_directory(entered_directory):
-    if entered_directory[-1]=="/":
-        wfl_dir=entered_directory
-    else:
-        wfl_dir=entered_directory+"/"
-    return wfl_dir
-
-def check_invocation_complete(gi, invocation_id):
-    """
-    Check if a workflow invocation is complete.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_id (str): Invocation ID to check
-
-    Returns:
-        tuple: (is_complete, status) where is_complete is bool and status is the state string
-               States: 'new', 'ready', 'scheduled', 'ok', 'error', 'failed', 'cancelled'
-               Complete = 'ok' or 'scheduled' (all jobs queued/running/done)
-    """
-    try:
-        summary = gi.invocations.get_invocation_summary(str(invocation_id))
-        status = summary.get('populated_state', 'unknown')
-        # scheduled means all jobs are queued/running, ok means all complete successfully
-        is_complete = status in ['ok', 'scheduled']
-        return (is_complete, status)
-    except Exception as e:
-        print(f"  Warning: Could not check status for invocation {invocation_id}: {e}")
-        return (False, 'error')
-
-def check_mitohifi_failure(gi, invocation_id):
-    """
-    Check if a Workflow 0 (mitochondrial) failure is due to no mitochondrial reads.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_id (str): Invocation ID to check
-
-    Returns:
-        tuple: (is_no_mito_data: bool, error_message: str)
-               is_no_mito_data: True if failure is due to no mitochondrial reads
-               error_message: Descriptive error message
-    """
-    try:
-        invocation = gi.invocations.show_invocation(str(invocation_id))
-
-        # Find the MitoHifi step in the workflow
-        steps = invocation.get('steps', [])
-        for step in steps:
-            step_jobs = step.get('jobs', [])
-            for job in step_jobs:
-                # Check if this is a MitoHifi step (look for tool name or step name)
-                tool_id = job.get('tool_id', '')
-                if 'mitohifi' in tool_id.lower():
-                    job_id = job.get('id')
-                    if job_id:
-                        # Get detailed job information including stdout/stderr
-                        try:
-                            job_details = gi.jobs.show_job(job_id, full_details=True)
-
-                            # Check stdout for "Total number of mapped reads: 0"
-                            stdout = job_details.get('stdout', '')
-                            stderr = job_details.get('stderr', '')
-
-                            no_mapped_reads = 'Total number of mapped reads: 0' in stdout
-                            hifiasm_error = 'An error may have occurred when assembling reads with HiFiasm.' in stderr
-
-                            if no_mapped_reads and hifiasm_error:
-                                return (True, "Reads probably contain no mitochondrial data (MitoHifi found 0 mapped reads)")
-                            elif no_mapped_reads:
-                                return (True, "No mitochondrial reads found (MitoHifi mapped 0 reads)")
-
-                        except Exception as e:
-                            log_warning(f"Could not retrieve job details for MitoHifi step: {e}")
-
-        # MitoHifi step found but no specific error pattern
-        return (False, "Invocation in error (unknown MitoHifi issue)")
-
-    except Exception as e:
-        log_warning(f"Could not check MitoHifi failure pattern: {e}")
-        return (False, f"Invocation in error (could not diagnose: {e})")
-
-def check_required_outputs_exist(gi, invocation_id, required_outputs):
-    """
-    Check if specific required outputs exist in a workflow invocation.
-    This allows launching downstream workflows before the upstream workflow is fully complete.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_id (str): Invocation ID to check
-        required_outputs (list): List of output names that must exist (e.g., ['gfa_assembly', 'Estimated Genome size'])
-
-    Returns:
-        tuple: (outputs_ready, missing_outputs)
-               outputs_ready (bool): True if all required outputs exist
-               missing_outputs (list): List of output names that are missing
-    """
-    try:
-        # Get full invocation object with outputs
-        invocation = gi.invocations.show_invocation(str(invocation_id))
-
-        # Extract all dataset IDs/outputs using existing function
-        available_outputs = get_datasets_ids(invocation)
-
-        # Check which required outputs are missing
-        missing_outputs = [output for output in required_outputs if output not in available_outputs]
-
-        outputs_ready = len(missing_outputs) == 0
-
-        return (outputs_ready, missing_outputs)
-    except Exception as e:
-        print(f"  Warning: Could not check outputs for invocation {invocation_id}: {e}")
-        return (False, required_outputs)  # Assume all outputs missing on error
-
-def get_or_find_history_id(gi, list_metadata, assembly_id, invocation_id=None, is_resume=False):
-    """
-    Get history_id from metadata, from an invocation, or search for it.
-    Stores found history_id in metadata for reuse across all workflow searches.
-
-    Priority:
-    1. Return cached history_id if exists in metadata (works for both new and resume runs)
-    2. Get from invocation_id if provided (requires API call)
-    3. Search by history name (only during resume, may not be accurate if duplicates exist)
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        list_metadata (dict): Metadata dictionary
-        assembly_id (str): Assembly ID
-        invocation_id (str, optional): Invocation ID to get history from
-        is_resume (bool): Whether this is a resume run (enables history search)
-
-    Returns:
-        str: history_id or None if not found
-    """
-    # Check cached first (works for both new and resume runs - avoids API calls)
-    if 'history_id' in list_metadata[assembly_id] and list_metadata[assembly_id]['history_id'] != 'NA':
-        return list_metadata[assembly_id]['history_id']
-
-    # Get from invocation if provided (requires API call - only if not cached)
-    if invocation_id:
-        try:
-            invocation_details = gi.invocations.show_invocation(str(invocation_id))
-            history_id = invocation_details['history_id']
-            # Cache it in metadata
-            list_metadata[assembly_id]['history_id'] = history_id
-            print(f"Retrieved history_id {history_id} from invocation {invocation_id}")
-            return history_id
-        except Exception as e:
-            print(f"Warning: Could not get history from invocation {invocation_id}: {e}")
-
-    # For new runs (not resume), don't search for history - it will be created by WF1
-    if not is_resume:
-        return None
-
-    # Fallback: Search by history name (only during resume, may not be accurate if duplicates)
-
-    history_name = list_metadata[assembly_id]['History_name']
-    try:
-        history_list = gi.histories._get_histories(name=history_name)
-        if len(history_list) > 1:
-            print(f"Warning: Multiple histories found for '{history_name}'. Using most recent (may not be correct).")
-            hist_times = {hist['id']: hist['update_time'] for hist in history_list}
-            sorted_hists = sorted(hist_times.items(), key=lambda item: item[1], reverse=True)
-            history_id = sorted_hists[0][0]
-        elif len(history_list) == 1:
-            history_id = history_list[0]['id']
-        else:
-            return None
-
-        # Cache it in metadata
-        list_metadata[assembly_id]['history_id'] = history_id
-        return history_id
-    except Exception as e:
-        print(f"Warning: Could not search for history '{history_name}': {e}")
-        return None
-
-def build_invocation_cache(gi, history_id):
-    """
-    Build a cache of all invocations in a history.
-    This is called once per species to avoid repeated API calls.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        history_id (str): History ID
-
-    Returns:
-        dict: Cache with structure:
-            {
-                'invocations': {inv_id: inv_details, ...},
-                'workflows': {wf_id: wf_name, ...},
-                'subworkflows': set([inv_id, ...])
-            }
-    """
-    cache = {
-        'invocations': {},
-        'workflows': {},
-        'subworkflows': set()
-    }
-
-    try:
-        # Get all invocations for this history (1 API call)
-        invocations = gi.invocations.get_invocations(history_id=history_id)
-
-        for invoc in invocations:
-            inv_id = invoc['id']
-            try:
-                # Get full invocation details (1 API call per invocation)
-                inv_details = gi.invocations.show_invocation(inv_id)
-                cache['invocations'][inv_id] = inv_details
-
-                # Collect subworkflow IDs
-                for step in inv_details.get('steps', []):
-                    if step.get('subworkflow_invocation_id'):
-                        cache['subworkflows'].add(step['subworkflow_invocation_id'])
-
-                # Get workflow name only once per unique workflow_id
-                wf_id = inv_details.get('workflow_id', '')
-                if wf_id and wf_id not in cache['workflows']:
-                    try:
-                        wf = gi.workflows.show_workflow(workflow_id=wf_id, instance=True)
-                        cache['workflows'][wf_id] = wf['name']
-                    except:
-                        cache['workflows'][wf_id] = ''
-            except:
-                continue
-
-        print(f"Built invocation cache: {len(cache['invocations'])} invocations, {len(cache['workflows'])} workflows")
-        return cache
-
-    except Exception as e:
-        print(f"Warning: Could not build invocation cache: {e}")
-        return cache
-
-def fetch_invocation_from_history(gi, history_id, workflow_name, haplotype=None, cache=None):
-    """
-    Fetch invocation ID from Galaxy history when JSON file is missing.
-    Returns None if not found (this is OK - workflow will be launched).
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        history_id (str): History ID (already looked up and cached)
-        workflow_name (str): Workflow name to match (e.g., "VGP1", "VGP4", "VGP8")
-        haplotype (str, optional): For VGP8/VGP9, specify 'hap1' or 'hap2'
-        cache (dict, optional): Pre-built invocation cache from build_invocation_cache()
-
-    Returns:
-        str: invocation_id or None if not found
-    """
-    try:
-        # Use provided cache or build a new one (for backward compatibility)
-        if cache is None:
-            cache = build_invocation_cache(gi, history_id)
-
-        # Process cached invocations - no additional API calls!
-        matching_invocations = {}
-
-        for inv_id, inv_details in cache['invocations'].items():
-            # Skip subworkflows
-            if inv_id in cache['subworkflows']:
-                continue
-
-            # Get workflow name from cache
-            wf_id = inv_details.get('workflow_id', '')
-            wf_name = cache['workflows'].get(wf_id, '')
-
-            # Match workflow name
-            if workflow_name in wf_name:
-                # Check state (already in inv_details)
-                state = inv_details.get('state', '')
-                if state not in ['failed', 'cancelled']:
-                    # For VGP8/VGP9, check haplotype parameter
-                    if haplotype:
-                        if 'Haplotype' in inv_details.get('input_step_parameters', {}):
-                            invoc_hap = inv_details['input_step_parameters']['Haplotype']['parameter_value']
-                            invoc_hap = invoc_hap.replace('Haplotype ', 'hap')
-                            if invoc_hap == haplotype:
-                                matching_invocations[inv_id] = inv_details['create_time']
-                    else:
-                        matching_invocations[inv_id] = inv_details['create_time']
-
-        # Return most recent matching invocation
-        if matching_invocations:
-            sorted_invocs = sorted(matching_invocations.items(), key=lambda item: item[1], reverse=True)
-            return sorted_invocs[0][0]
-
-        return None
-    except Exception as e:
-        print(f"Warning: Error searching history for {workflow_name}: {e}")
-        return None
-
-def poll_until_invocation_complete(gi, invocation_id, workflow_name, assembly_id, poll_interval=3600, max_polls=24):
-    """
-    Poll an invocation until it reaches a terminal state (ok, error, failed, cancelled).
-    Used in resume mode when an invocation is still running.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_id (str): Invocation ID to poll
-        workflow_name (str): Workflow name for logging
-        assembly_id (str): Assembly ID for logging
-        poll_interval (int): Seconds between polls (default: 3600 = 1 hour)
-        max_polls (int): Maximum number of polls before giving up (default: 24 = 24 hours)
-
-    Returns:
-        tuple: (is_complete: bool, state: str)
-    """
-    print(f"\n{'='*60}")
-    print(f"Polling {workflow_name} for {assembly_id} (invocation: {invocation_id})")
-    print(f"Status will be checked every {poll_interval//60} minutes")
-    print(f"{'='*60}\n")
-
-    for poll_count in range(max_polls):
-        try:
-            # Get current timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            summary = gi.invocations.get_invocation_summary(str(invocation_id))
-            state = summary.get('populated_state', 'unknown')
-
-            # Extract job counts from summary
-            jobs = summary.get('jobs', [])
-            total_jobs = len(jobs)
-
-            # Count jobs by state
-            job_states = {}
-            for job in jobs:
-                job_state = job.get('state', 'unknown')
-                job_states[job_state] = job_states.get(job_state, 0) + 1
-
-            completed_jobs = job_states.get('ok', 0)
-            failed_jobs = job_states.get('error', 0) + job_states.get('failed', 0)
-            running_jobs = job_states.get('running', 0)
-            queued_jobs = job_states.get('queued', 0) + job_states.get('new', 0)
-
-            # Build progress string
-            progress_parts = []
-            if completed_jobs > 0:
-                progress_parts.append(f"{completed_jobs} completed")
-            if running_jobs > 0:
-                progress_parts.append(f"{running_jobs} running")
-            if queued_jobs > 0:
-                progress_parts.append(f"{queued_jobs} queued")
-            if failed_jobs > 0:
-                progress_parts.append(f"{failed_jobs} failed")
-
-            progress_str = ", ".join(progress_parts) if progress_parts else "no jobs"
-
-            print(f"Poll {poll_count + 1}/{max_polls} [{timestamp}]: {workflow_name} state = {state}")
-            print(f"  Jobs: {completed_jobs}/{total_jobs} ({progress_str})")
-
-            # Check if reached terminal state
-            if state in ['ok', 'error', 'failed', 'cancelled']:
-                if state == 'ok':
-                    print(f"✓ {workflow_name} completed successfully!")
-                    return (True, state)
-                else:
-                    print(f"✗ {workflow_name} finished with state: {state}")
-                    return (True, state)
-
-            # Still running, wait before next poll
-            if poll_count < max_polls - 1:  # Don't sleep on last iteration
-                print(f"  Workflow still running. Sleeping for {poll_interval//60} minutes...")
-                print(f"  (You can safely interrupt with Ctrl+C and resume later)\n")
-                time.sleep(poll_interval)
-
-        except Exception as e:
-            print(f"Warning: Error checking invocation status: {e}")
-            if poll_count < max_polls - 1:
-                print(f"  Retrying in {poll_interval//60} minutes...\n")
-                time.sleep(poll_interval)
-
-    # Max polls reached
-    print(f"⚠ Maximum polling time reached for {workflow_name}")
-    return (False, 'timeout')
-
-def poll_until_outputs_ready(gi, invocation_id, required_outputs, workflow_name, assembly_id, poll_interval=3600, max_polls=72):
-    """
-    Poll an invocation until required outputs are ready (exist in the invocation).
-    Used when we need specific outputs before launching the next workflow.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_id (str): Invocation ID to check
-        required_outputs (list): List of required output names
-        workflow_name (str): Workflow name for logging
-        assembly_id (str): Assembly ID for logging
-        poll_interval (int): Seconds between polls (default: 3600 = 1 hour)
-        max_polls (int): Maximum number of polls before giving up (default: 72 = 3 days)
-
-    Returns:
-        tuple: (outputs_ready: bool, missing_outputs: list)
-    """
-    print(f"\n{'='*60}")
-    print(f"Polling {workflow_name} outputs for {assembly_id} (invocation: {invocation_id})")
-    print(f"Waiting for outputs: {', '.join(required_outputs)}")
-    print(f"Status will be checked every {poll_interval//60} minutes")
-    print(f"{'='*60}\n")
-
-    for poll_count in range(max_polls):
-        try:
-            # Get current timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            # Check if required outputs exist
-            outputs_ready, missing_outputs = check_required_outputs_exist(gi, invocation_id, required_outputs)
-
-            if outputs_ready:
-                print(f"✓ All required outputs are ready for {workflow_name}!")
-                return (True, [])
-            else:
-                print(f"Poll {poll_count + 1}/{max_polls} [{timestamp}]: Still missing outputs: {', '.join(missing_outputs)}")
-
-            # Check invocation state and job progress for context
-            try:
-                summary = gi.invocations.get_invocation_summary(str(invocation_id))
-                state = summary.get('populated_state', 'unknown')
-
-                # Extract job counts from summary
-                jobs = summary.get('jobs', [])
-                total_jobs = len(jobs)
-
-                # Count jobs by state
-                job_states = {}
-                for job in jobs:
-                    job_state = job.get('state', 'unknown')
-                    job_states[job_state] = job_states.get(job_state, 0) + 1
-
-                completed_jobs = job_states.get('ok', 0)
-                failed_jobs = job_states.get('error', 0) + job_states.get('failed', 0)
-                running_jobs = job_states.get('running', 0)
-                queued_jobs = job_states.get('queued', 0) + job_states.get('new', 0)
-
-                # Build progress string
-                progress_parts = []
-                if completed_jobs > 0:
-                    progress_parts.append(f"{completed_jobs} completed")
-                if running_jobs > 0:
-                    progress_parts.append(f"{running_jobs} running")
-                if queued_jobs > 0:
-                    progress_parts.append(f"{queued_jobs} queued")
-                if failed_jobs > 0:
-                    progress_parts.append(f"{failed_jobs} failed")
-
-                progress_str = ", ".join(progress_parts) if progress_parts else "no jobs"
-                print(f"  Invocation state: {state} | Jobs: {completed_jobs}/{total_jobs} ({progress_str})")
-
-                # If invocation failed, no point in waiting
-                if state in ['failed', 'cancelled', 'error']:
-                    print(f"✗ {workflow_name} invocation failed with state: {state}")
-                    print(f"  Required outputs will not be generated.")
-                    return (False, missing_outputs)
-            except Exception as e:
-                print(f"  Warning: Could not check invocation state: {e}")
-
-            # Still waiting, sleep before next poll
-            if poll_count < max_polls - 1:  # Don't sleep on last iteration
-                print(f"  Sleeping for {poll_interval//60} minutes...")
-                print(f"  (You can safely interrupt with Ctrl+C and resume later)\n")
-                time.sleep(poll_interval)
-
-        except Exception as e:
-            print(f"Warning: Error checking outputs: {e}")
-            if poll_count < max_polls - 1:
-                print(f"  Retrying in {poll_interval//60} minutes...\n")
-                time.sleep(poll_interval)
-
-    # Max polls reached
-    print(f"⚠ Maximum polling time reached for {workflow_name} outputs")
-    print(f"  Still missing: {', '.join(missing_outputs)}")
-    return (False, missing_outputs)
-
-def download_invocation_report(gi, invocation_id, output_path, workflow_name="workflow", assembly_id="unknown"):
-    """
-    Download PDF report for a completed workflow invocation.
-    This feature can be unreliable, so errors are caught and logged but don't stop execution.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_id (str): Invocation ID
-        output_path (str): Path where to save the PDF report
-        workflow_name (str): Workflow name for logging
-        assembly_id (str): Assembly ID for logging
-
-    Returns:
-        bool: True if download successful, False otherwise
-    """
-    try:
-        # Check if invocation is in a terminal state
-        invocation = gi.invocations.show_invocation(str(invocation_id))
-        state = invocation.get('state', 'unknown')
-
-        if state not in ['ok', 'failed', 'cancelled']:
-            log_warning(f"Cannot download report for {workflow_name} ({assembly_id}): invocation not in terminal state (state: {state})")
-            return False
-
-        # Get the report PDF
-        log_info(f"Downloading report for {workflow_name} ({assembly_id})...")
-        report_pdf = gi.invocations.show_invocation_report_pdf(str(invocation_id))
-
-        # Write to file
-        with open(output_path, 'wb') as pdf_file:
-            pdf_file.write(report_pdf)
-
-        log_info(f"✓ Report saved: {output_path}")
-        return True
-
-    except Exception as e:
-        # This feature is unreliable, so just log warning and continue
-        log_warning(f"Could not download report for {workflow_name} ({assembly_id}): {e}")
-        return False
-
-def batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix_run, download_reports=False):
-    """
-    Pre-populate all species metadata with invocations from their histories.
-    This centralizes all API calls before threading to minimize API load.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        list_metadata (dict): All species metadata
-        profile_data (dict): Profile configuration
-        suffix_run (str): Run suffix
-
-    Returns:
-        None (updates list_metadata in place)
-    """
-    print(f"\n{'='*60}")
-    print("Pre-fetching invocations from Galaxy histories...")
-    print(f"{'='*60}\n")
-
-    # Group species by history_id to minimize API calls
-    history_to_species = {}
-    for species_id, metadata in list_metadata.items():
-        history_id = metadata.get('history_id', 'NA')
-        if history_id != 'NA':
-            if history_id not in history_to_species:
-                history_to_species[history_id] = []
-            history_to_species[history_id].append(species_id)
-
-    if not history_to_species:
-        print("No histories to fetch from.\n")
-        return
-
-    print(f"Found {len(history_to_species)} unique histories to check")
-
-    # Workflow keys to search for
-    workflow_search_map = {
-        'Workflow_1': 'VGP1',
-        'Workflow_4': 'VGP4',
-        'Workflow_0': 'VGP0',
-        'Workflow_8_hap1': ('VGP8', 'hap1'),
-        'Workflow_8_hap2': ('VGP8', 'hap2'),
-        'Workflow_9_hap1': ('VGP9', 'hap1'),
-        'Workflow_9_hap2': ('VGP9', 'hap2'),
-        'Workflow_PreCuration': 'PretextMap'
-    }
-
-    # Process each unique history
-    for history_id, species_ids in history_to_species.items():
-        print(f"\nFetching invocations for history: {history_id}")
-        print(f"  Species in this history: {', '.join(species_ids)}")
-
-        # Build cache once for this history (batch API call)
-        cache = build_invocation_cache(gi, history_id)
-
-        # Update all species that share this history
-        for species_id in species_ids:
-            print(f"\n  Updating {species_id}...")
-            updated_count = 0
-
-            for workflow_key, search_params in workflow_search_map.items():
-                # Skip if already have invocation
-                current_inv = list_metadata[species_id]['invocations'].get(workflow_key, 'NA')
-                if current_inv != 'NA':
-                    continue
-
-                # Search for invocation
-                if isinstance(search_params, tuple):
-                    wf_name, haplotype = search_params
-                    invocation_id = fetch_invocation_from_history(gi, history_id, wf_name, haplotype=haplotype, cache=cache)
-                else:
-                    invocation_id = fetch_invocation_from_history(gi, history_id, search_params, cache=cache)
-
-                if invocation_id:
-                    # Check if this invocation is in a failed state
-                    # (Important for --retry-failed: don't re-add failed invocations)
-                    inv_details = cache['invocations'].get(invocation_id)
-                    if inv_details:
-                        inv_state = inv_details.get('state', 'unknown')
-                        if inv_state in ['failed', 'cancelled', 'error']:
-                            # Don't re-add failed invocations - leave as 'NA' so they can be retried
-                            print(f"    Skipping {workflow_key}: invocation {invocation_id} is in '{inv_state}' state")
-                            continue
-
-                    list_metadata[species_id]['invocations'][workflow_key] = invocation_id
-                    print(f"    Found {workflow_key}: {invocation_id}")
-
-                    # Get dataset IDs for this invocation
-                    try:
-                        # Use cached invocation details (no new API call!)
-                        if inv_details:
-                            dataset_ids = get_datasets_ids(inv_details)
-                            list_metadata[species_id]['dataset_ids'][workflow_key] = dataset_ids
-                            print(f"      Retrieved {len(dataset_ids)} dataset IDs")
-                        else:
-                            # Fallback: make API call if not in cache
-                            inv_details = gi.invocations.show_invocation(str(invocation_id))
-                            dataset_ids = get_datasets_ids(inv_details)
-                            list_metadata[species_id]['dataset_ids'][workflow_key] = dataset_ids
-                            print(f"      Retrieved {len(dataset_ids)} dataset IDs (fallback)")
-                    except Exception as e:
-                        print(f"      Warning: Could not get dataset IDs: {e}")
-
-                    # Download report if requested
-                    if download_reports:
-                        report_path = list_metadata[species_id]['reports'].get(workflow_key)
-                        if report_path:
-                            download_invocation_report(gi, invocation_id, report_path, workflow_key, species_id)
-
-                    updated_count += 1
-
-            if updated_count > 0:
-                # Save updated metadata for this species
-                save_species_metadata(species_id, list_metadata, profile_data, suffix_run)
-                print(f"  ✓ Updated {updated_count} workflows for {species_id}")
-            else:
-                print(f"  No new invocations found for {species_id}")
-
-    print(f"\n{'='*60}")
-    print("Finished pre-fetching invocations")
-    if download_reports:
-        print("Report downloads attempted (check logs for results)")
-    print(f"{'='*60}\n")
-
-def wait_for_invocations(gi, invocation_ids, assembly_id, workflow_name=None, poll_interval=60, timeout=86400):
-    """
-    Wait for Galaxy invocations to complete, polling at regular intervals.
-
-    Args:
-        gi (GalaxyInstance): Galaxy instance object
-        invocation_ids (list): List of invocation IDs to wait for (or dict {inv_id: description})
-        assembly_id (str): Assembly ID for logging
-        workflow_name (str, optional): Workflow name for logging
-        poll_interval (int): Seconds between status checks (default: 60)
-        timeout (int): Maximum seconds to wait (default: 86400 = 24 hours)
-
-    Returns:
-        dict: Status of each invocation {invocation_id: status}
-    """
-    start_time = time.time()
-
-    # Support both list and dict formats
-    if isinstance(invocation_ids, dict):
-        inv_dict = invocation_ids
-        invocation_ids = list(inv_dict.keys())
-    else:
-        inv_dict = {inv_id: workflow_name or f"invocation {inv_id}" for inv_id in invocation_ids}
-
-    statuses = {inv_id: 'waiting' for inv_id in invocation_ids}
-
-    wf_info = f" ({workflow_name})" if workflow_name else ""
-    # Format poll interval in human-readable form
-    if poll_interval >= 60:
-        poll_display = f"{poll_interval // 60} minutes"
-    else:
-        poll_display = f"{poll_interval} seconds"
-
-    log_info(f"Waiting for {len(invocation_ids)} invocation(s) to complete for {assembly_id}{wf_info}...")
-    log_info(f"Polling every {poll_display}. Press Ctrl+C to interrupt and resume later with --resume.\n")
-
-    poll_count = 0
-    while True:
-        poll_count += 1
-        elapsed = int(time.time() - start_time)
-        # Get current timestamp
-        from datetime import datetime
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_info(f"[Poll #{poll_count}, {current_time}, elapsed: {elapsed//60}m {elapsed%60}s] Checking invocation status...")
-
-        all_done = True
-        for inv_id in invocation_ids:
-            if statuses[inv_id] not in ['ok', 'error', 'failed']:
-                try:
-                    summary = gi.invocations.get_invocation_summary(str(inv_id))
-                    status = summary.get('populated_state', 'unknown')
-
-                    # Get job completion statistics
-                    jobs_total = 0
-                    jobs_complete = 0
-                    jobs_ok = 0
-                    jobs_error = 0
-                    if 'states' in summary:
-                        states = summary['states']
-                        # Total jobs = sum of all job states
-                        jobs_total = sum(states.values()) if states else 0
-                        # Completed jobs = ok + error (terminal states)
-                        jobs_ok = states.get('ok', 0)
-                        jobs_error = states.get('error', 0)
-                        jobs_complete = jobs_ok + jobs_error
-
-                    job_info = f" ({jobs_complete}/{jobs_total} jobs)" if jobs_total > 0 else ""
-
-                    # Add warning for failed jobs
-                    if jobs_error > 0:
-                        job_info += f" ⚠ {jobs_error} failed"
-
-                    # Only print if status changed
-                    if status != statuses[inv_id]:
-                        statuses[inv_id] = status
-                        inv_label = inv_dict.get(inv_id, inv_id)
-                        if status == 'ok':
-                            log_info(f"  ✓ {inv_label} ({assembly_id}): completed successfully{job_info}")
-                        elif status in ['error', 'failed']:
-                            log_warning(f"{inv_label} ({assembly_id}): {status}{job_info}")
-                        else:
-                            log_info(f"  → {inv_label} ({assembly_id}): {status}{job_info}")
-
-                    if status not in ['ok', 'error', 'failed']:
-                        all_done = False
-                except Exception as e:
-                    inv_label = inv_dict.get(inv_id, inv_id)
-                    print(f"  Warning: Could not check status for {inv_label}: {e}")
-                    all_done = False
-
-        if all_done:
-            log_info(f"\n✓ All invocations completed for {assembly_id}{wf_info}\n")
-            break
-
-        # Check timeout
-        if time.time() - start_time > timeout:
-            log_warning(f"Timeout reached after {timeout} seconds ({timeout//3600} hours)")
-            break
-
-        # Wait before next check
-        log_info(f"  Waiting {poll_display} before next check...")
-        time.sleep(poll_interval)
-
-    return statuses
-
-def mark_invocation_as_failed(assembly_id, list_metadata, workflow_key, invocation_id, profile_data, suffix_run):
-    """
-    Mark an invocation as failed by moving it from invocations to failed_invocations.
-
-    Args:
-        assembly_id (str): Assembly ID
-        list_metadata (dict): Metadata dictionary
-        workflow_key (str): Workflow key (e.g., "Workflow_1", "Workflow_8_hap1")
-        invocation_id (str): Invocation ID that failed
-        profile_data (dict): Profile configuration
-        suffix_run (str): Suffix for the run
-    """
-    # Initialize failed_invocations dict if it doesn't exist
-    if 'failed_invocations' not in list_metadata[assembly_id]:
-        list_metadata[assembly_id]['failed_invocations'] = {}
-
-    # Initialize workflow list in failed_invocations if it doesn't exist
-    if workflow_key not in list_metadata[assembly_id]['failed_invocations']:
-        list_metadata[assembly_id]['failed_invocations'][workflow_key] = []
-
-    # Add to failed list if not already there
-    if invocation_id not in list_metadata[assembly_id]['failed_invocations'][workflow_key]:
-        list_metadata[assembly_id]['failed_invocations'][workflow_key].append(invocation_id)
-        log_warning(f"Invocation {invocation_id} for {workflow_key} marked as failed")
-
-    # Remove from regular invocations (reset to 'NA' so it can be retried)
-    if workflow_key in list_metadata[assembly_id]['invocations']:
-        list_metadata[assembly_id]['invocations'][workflow_key] = 'NA'
-
-    # Save metadata
-    save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
-
-def save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run):
-    """
-    Save individual species metadata to avoid data loss if species fails mid-run.
-    Each species gets its own metadata file.
-
-    Args:
-        assembly_id (str): Assembly ID
-        list_metadata (dict): Metadata dictionary
-        profile_data (dict): Profile configuration with Metadata_directory
-        suffix_run (str): Suffix for the run
-    """
-    try:
-        metadata_file = f"{profile_data['Metadata_directory']}metadata_{assembly_id}_run{suffix_run}.json"
-        with open(metadata_file, 'w') as json_file:
-            json.dump(list_metadata[assembly_id], json_file, indent=4)
-    except Exception as e:
-        log_warning(f"Could not save species metadata for {assembly_id}: {e}")
 
 def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow_data, is_resume=False):
     """
@@ -1185,7 +111,48 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             print(f"No previous run found for Workflow 1. Launching...")
         else:
             print(f"Launching Workflow 1 for {assembly_id}...")
-        os.system(command_lines['Workflow_1'])
+
+        # Run planemo and check return code
+        return_code = os.system(command_lines['Workflow_1'])
+        log_file = list_metadata[assembly_id]['planemo_logs']['Workflow_1']
+
+        if return_code != 0:
+            print(f"ERROR: Workflow 1 for {assembly_id} failed with return code {return_code}")
+            print(f"Check log file: {log_file}")
+            mark_invocation_as_failed(
+                assembly_id,
+                list_metadata,
+                'Workflow_1',
+                'NA',  # No invocation ID when planemo fails
+                profile_data,
+                suffix_run
+            )
+            return {assembly_id: list_metadata[assembly_id]}
+
+        # Even if return code is 0, check log for errors (planemo sometimes exits 0 despite internal errors)
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    log_content = f.read()
+                    if 'AssertionError' in log_content or 'Error' in log_content or 'Failed' in log_content:
+                        error_lines = [line for line in log_content.split('\n') if 'AssertionError' in line or 'Error:' in line or 'ERROR:' in line]
+                        if error_lines:
+                            print(f"ERROR: Workflow 1 for {assembly_id} encountered errors despite return code 0:")
+                            for line in error_lines[:5]:
+                                print(f"  {line}")
+                            print(f"Check full log file: {log_file}")
+                            mark_invocation_as_failed(
+                                assembly_id,
+                                list_metadata,
+                                'Workflow_1',
+                                'NA',
+                                profile_data,
+                                suffix_run
+                            )
+                            return {assembly_id: list_metadata[assembly_id]}
+            except Exception as e:
+                print(f"Warning: Could not read log file for error checking: {e}")
+
         print(f"Workflow 1 for {assembly_id} ({species_name}) has been launched.\n")
 
         # Wait for invocation JSON to be written (retry up to 30 seconds)
@@ -1330,7 +297,49 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
         else:
             print(f"Preparing and launching Workflow 4 for {assembly_id}...")
         prepare_yaml_wf4(assembly_id, list_metadata, profile_data)
-        os.system(command_lines["Workflow_4"])
+
+        # Run planemo and check return code
+        return_code = os.system(command_lines["Workflow_4"])
+        log_file = list_metadata[assembly_id]['planemo_logs']['Workflow_4']
+
+        if return_code != 0:
+            print(f"ERROR: Workflow 4 for {assembly_id} failed with return code {return_code}")
+            print(f"Check log file: {log_file}")
+            mark_invocation_as_failed(
+                assembly_id,
+                list_metadata,
+                'Workflow_4',
+                'NA',  # No invocation ID when planemo fails
+                profile_data,
+                suffix_run
+            )
+            return {assembly_id: list_metadata[assembly_id]}
+
+        # Even if return code is 0, check log for errors (planemo sometimes exits 0 despite internal errors)
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    log_content = f.read()
+                    if 'AssertionError' in log_content or 'Error' in log_content or 'Failed' in log_content:
+                        # Check if these are actual errors (not just warnings)
+                        error_lines = [line for line in log_content.split('\n') if 'AssertionError' in line or 'Error:' in line or 'ERROR:' in line]
+                        if error_lines:
+                            print(f"ERROR: Workflow 4 for {assembly_id} encountered errors despite return code 0:")
+                            for line in error_lines[:5]:  # Show first 5 error lines
+                                print(f"  {line}")
+                            print(f"Check full log file: {log_file}")
+                            mark_invocation_as_failed(
+                                assembly_id,
+                                list_metadata,
+                                'Workflow_4',
+                                'NA',
+                                profile_data,
+                                suffix_run
+                            )
+                            return {assembly_id: list_metadata[assembly_id]}
+            except Exception as e:
+                print(f"Warning: Could not read log file for error checking: {e}")
+
         print(f"Workflow 4 for {assembly_id} ({species_name}) has been launched.\n")
 
         # Wait for invocation JSON to be written (retry up to 30 seconds)
@@ -1608,7 +617,46 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             if wf8_key in command_lines:
                 print(f"  Starting Workflow 8 ({haplotype_name}) in thread...")
                 # Launch WITHOUT & - this blocks until planemo finishes
-                os.system(command_lines[wf8_key])
+                return_code = os.system(command_lines[wf8_key])
+                log_file = list_metadata[assembly_id]['planemo_logs'].get(wf8_key)
+
+                if return_code != 0:
+                    print(f"  ERROR: Workflow 8 ({haplotype_name}) failed with return code {return_code}")
+                    print(f"  Check log file: {log_file}")
+                    mark_invocation_as_failed(
+                        assembly_id,
+                        list_metadata,
+                        wf8_key,
+                        'NA',  # No invocation ID when planemo fails
+                        profile_data,
+                        suffix_run
+                    )
+                    return
+
+                # Even if return code is 0, check log for errors
+                if log_file and os.path.exists(log_file):
+                    try:
+                        with open(log_file, 'r') as f:
+                            log_content = f.read()
+                            if 'AssertionError' in log_content or 'Error' in log_content or 'Failed' in log_content:
+                                error_lines = [line for line in log_content.split('\n') if 'AssertionError' in line or 'Error:' in line or 'ERROR:' in line]
+                                if error_lines:
+                                    print(f"  ERROR: Workflow 8 ({haplotype_name}) encountered errors despite return code 0:")
+                                    for line in error_lines[:5]:
+                                        print(f"    {line}")
+                                    print(f"  Check full log file: {log_file}")
+                                    mark_invocation_as_failed(
+                                        assembly_id,
+                                        list_metadata,
+                                        wf8_key,
+                                        'NA',
+                                        profile_data,
+                                        suffix_run
+                                    )
+                                    return
+                    except Exception as e:
+                        print(f"  Warning: Could not read log file for error checking: {e}")
+
                 print(f"  ✓ Workflow 8 ({haplotype_name}) planemo command completed")
 
                 # Immediately read JSON and save per-haplotype metadata
@@ -1961,7 +1009,46 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             if wf9_key in command_lines:
                 print(f"  Starting Workflow 9 ({haplotype_name}) in thread...")
                 # Launch WITHOUT & - this blocks until planemo finishes
-                os.system(command_lines[wf9_key])
+                return_code = os.system(command_lines[wf9_key])
+                log_file = list_metadata[assembly_id]['planemo_logs'].get(wf9_key)
+
+                if return_code != 0:
+                    print(f"  ERROR: Workflow 9 ({haplotype_name}) failed with return code {return_code}")
+                    print(f"  Check log file: {log_file}")
+                    mark_invocation_as_failed(
+                        assembly_id,
+                        list_metadata,
+                        wf9_key,
+                        'NA',  # No invocation ID when planemo fails
+                        profile_data,
+                        suffix_run
+                    )
+                    return
+
+                # Even if return code is 0, check log for errors
+                if log_file and os.path.exists(log_file):
+                    try:
+                        with open(log_file, 'r') as f:
+                            log_content = f.read()
+                            if 'AssertionError' in log_content or 'Error' in log_content or 'Failed' in log_content:
+                                error_lines = [line for line in log_content.split('\n') if 'AssertionError' in line or 'Error:' in line or 'ERROR:' in line]
+                                if error_lines:
+                                    print(f"  ERROR: Workflow 9 ({haplotype_name}) encountered errors despite return code 0:")
+                                    for line in error_lines[:5]:
+                                        print(f"    {line}")
+                                    print(f"  Check full log file: {log_file}")
+                                    mark_invocation_as_failed(
+                                        assembly_id,
+                                        list_metadata,
+                                        wf9_key,
+                                        'NA',
+                                        profile_data,
+                                        suffix_run
+                                    )
+                                    return
+                    except Exception as e:
+                        print(f"  Warning: Could not read log file for error checking: {e}")
+
                 print(f"  ✓ Workflow 9 ({haplotype_name}) planemo command completed")
 
                 # Immediately read JSON and save per-haplotype metadata
@@ -2103,14 +1190,29 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                 )
 
                 # Launch workflow (planemo will block until complete since --no-wait was removed)
-                os.system(command_lines["Workflow_PreCuration"])
+                return_code = os.system(command_lines["Workflow_PreCuration"])
 
-                # Get invocation ID from completed JSON
-                precuration_json = open(list_metadata[assembly_id]["invocation_jsons"]["Workflow_PreCuration"])
-                res_precuration = json.load(precuration_json)
-                invocation_precuration = res_precuration["tests"][0]["data"]['invocation_details']['details']['invocation_id']
-                list_metadata[assembly_id]["invocations"]["Workflow_PreCuration"] = invocation_precuration
-                print(f"Pre-curation workflow launched: {invocation_precuration}\n")
+                if return_code != 0:
+                    print(f"ERROR: Pre-curation workflow for {assembly_id} failed with return code {return_code}")
+                    print(f"Check log file: {list_metadata[assembly_id]['planemo_logs']['Workflow_PreCuration']}")
+                    mark_invocation_as_failed(
+                        assembly_id,
+                        list_metadata,
+                        'Workflow_PreCuration',
+                        'NA',  # No invocation ID when planemo fails
+                        profile_data,
+                        suffix_run
+                    )
+                else:
+                    # Get invocation ID from completed JSON
+                    try:
+                        precuration_json = open(list_metadata[assembly_id]["invocation_jsons"]["Workflow_PreCuration"])
+                        res_precuration = json.load(precuration_json)
+                        invocation_precuration = res_precuration["tests"][0]["data"]['invocation_details']['details']['invocation_id']
+                        list_metadata[assembly_id]["invocations"]["Workflow_PreCuration"] = invocation_precuration
+                        print(f"Pre-curation workflow launched: {invocation_precuration}\n")
+                    except (json.JSONDecodeError, KeyError, IOError) as e:
+                        print(f"Warning: Could not parse PreCuration JSON: {e}")
 
             # Store dataset IDs for PreCuration
             if invocation_precuration:
@@ -2124,6 +1226,8 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
     save_species_metadata(assembly_id, list_metadata, profile_data, suffix_run)
 
     return {assembly_id: list_metadata[assembly_id]}
+
+
 
 def process_species_wrapper(species_id, list_metadata, profile_data, dico_workflows, results_lock, results_status, is_resume=False):
     """
@@ -2188,186 +1292,4 @@ def process_species_wrapper(species_id, list_metadata, profile_data, dico_workfl
             results_status[species_id] = f"error: {str(e)}"
         return (species_id, "error", error_msg)
 
-def prepare_yaml_wf4(assembly_id, list_metadata, profile_data):
-    str_hic=""
-    hic_f=list_metadata[assembly_id]['HiC_forward_reads']
-    hic_r=list_metadata[assembly_id]['HiC_reverse_reads']
-    gi=GalaxyInstance(profile_data['Galaxy_instance'], profile_data['Galaxy_key'])
-    wf1_inv=gi.invocations.show_invocation(str(list_metadata[assembly_id]["invocations"]["Workflow_1"]))
-    dic_data_ids=get_datasets_ids(wf1_inv)
-    species_name=list_metadata[assembly_id]['Name']
-    species_id=assembly_id
-    hic_type=list_metadata[assembly_id]['HiC_Type']
-    path_script=profile_data['path_script']
-    for i in range(0,len(list_metadata[assembly_id]['HiC_forward_reads'])):
-        namef=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_f[i])
-        namer=re.sub(r"\.f(ast)?q(sanger)?\.gz","",hic_r[i])
-        str_hic=str_hic+"\n  - class: Collection\n    type: paired\n    identifier: "+namef+"\n    elements:\n    - identifier: forward\n      class: File\n      path: gxfiles://genomeark/species/"+species_name+"/"+species_id+"/genomic_data/"+hic_type+"/"+hic_f[i]+"\n      filetype: fastqsanger.gz\n    - identifier: reverse\n      class: File\n      path: gxfiles://genomeark/species/"+species_name+"/"+species_id+"/genomic_data/"+hic_type+"/"+hic_r[i]+"\n      filetype: fastqsanger.gz"
-    with open(path_script+"/templates/wf4_run.sample.yaml", 'r') as sample_file:
-        filedata = sample_file.read()
-    pattern = r'\["(.*)"\]' # Matches the fields to replace
-    to_fill = re.findall(pattern, filedata)
-    dic_data_ids['hic']=str_hic
-    dic_data_ids['Species Name']=list_metadata[assembly_id]['Name']
-    dic_data_ids['Assembly Name']=assembly_id
 
-    # Set trimhic based on HiC type
-    # Arima data needs trimming (true), dovetail/other doesn't (false)
-    dic_data_ids['trimhic'] = 'true' if hic_type.lower() == 'arima' else 'false'
-
-    for i in to_fill:
-        filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
-    with open(list_metadata[assembly_id]['job_files']['Workflow_4'], 'w') as yaml_wf4:
-        yaml_wf4.write(filedata)
-
-def prepare_yaml_wf8(assembly_id, list_metadata, invocation_wf4, profile_data, haplotype_code):
-    dic_data_ids=get_datasets_ids(invocation_wf4)
-    path_script=profile_data['path_script']
-
-    # Map haplotype code to GFA output name and haplotype value
-    if haplotype_code == 'hap1':
-        gfa_output_name = 'usable hap1 gfa'
-        haplotype_value = 'Haplotype 1'
-    elif haplotype_code == 'hap2':
-        gfa_output_name = 'usable hap2 gfa'
-        haplotype_value = 'Haplotype 2'
-    else:
-        raise ValueError(f"Unknown haplotype code: {haplotype_code}")
-
-    # Map the old gfa_assembly name to the haplotype-specific output
-    dic_data_ids['gfa_assembly'] = dic_data_ids.get(gfa_output_name, '')
-
-    with open(path_script+"/templates/wf8_run_sample.yaml", 'r') as sample_file:
-        filedata = sample_file.read()
-    pattern = r'\["(.*)"\]' # Matches the fields to replace
-    to_fill = re.findall(pattern, filedata)
-    dic_data_ids['Species Name']=list_metadata[assembly_id]['Name']
-    dic_data_ids['Assembly Name']=assembly_id
-    dic_data_ids['haplotype']=haplotype_value
-    for i in to_fill:
-        filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
-
-    # Use the haplotype-specific job file key
-    wf8_key = f"Workflow_8_{haplotype_code}"
-    with open(list_metadata[assembly_id]['job_files'][wf8_key], 'w') as yaml_wf8:
-        yaml_wf8.write(filedata)
-        
-def prepare_yaml_wf0(assembly_id, list_metadata, invocation_wf4, profile_data):
-    dic_data_ids=get_datasets_ids(invocation_wf4)
-    path_script=profile_data['path_script']
-
-    # Check that email is provided (required for Workflow 0)
-    if 'email' not in profile_data or not profile_data['email']:
-        raise SystemExit("Error: 'email' field is required in the profile for Workflow 0 (mitochondrial assembly). Please add your email address to the profile YAML file.")
-
-    with open(path_script+"/templates/wf0_run.sample.yaml", 'r') as sample_file:
-        filedata = sample_file.read()
-    pattern = r'\["(.*)"\]' # Matches the fields to replace
-    to_fill = re.findall(pattern, filedata)
-    dic_data_ids['Species Name']=list_metadata[assembly_id]['Name']
-    dic_data_ids['Assembly Name']=assembly_id
-    # Add Latin Name (species name with spaces instead of underscores)
-    dic_data_ids['Latin Name']=list_metadata[assembly_id]['Name'].replace("_", " ")
-    # Add email (required field)
-    dic_data_ids['email'] = profile_data['email']
-    for i in to_fill:
-        filedata = filedata.replace('["'+i+'"]', dic_data_ids[i] )
-    with open(list_metadata[assembly_id]['job_files']['Workflow_0'], 'w') as yaml_wf0:
-        yaml_wf0.write(filedata)
-
-def prepare_yaml_wf9(assembly_id, species_name, invocation_wf8, haplotype, output_file, template_file, taxon_ID=None):
-    """
-    Prepare YAML job file for workflow 9 (decontamination).
-
-    Args:
-        assembly_id (str): Assembly ID (e.g., 'bTaeGut2')
-        species_name (str): Species name with underscores (e.g., 'Taeniopygia_guttata')
-        invocation_wf8 (dict): Galaxy invocation object from workflow 8
-        haplotype (str): Full haplotype name ('Haplotype 1', 'Haplotype 2', 'Maternal', 'Paternal')
-        output_file (str): Path to output YAML file
-        template_file (str): Path to template file (legacy or fcs)
-        taxon_ID (str, optional): NCBI taxonomy ID (required for FCS version)
-    """
-    dic_data_ids = get_datasets_ids(invocation_wf8)
-
-    # Add additional fields
-    dic_data_ids['Species Name'] = species_name
-    dic_data_ids['Assembly Name'] = assembly_id
-    dic_data_ids['haplotype'] = haplotype
-
-    # Add taxon_ID if provided (for FCS version)
-    if taxon_ID is not None:
-        dic_data_ids['taxon_ID'] = str(taxon_ID)
-
-    # Read template and replace placeholders
-    with open(template_file, 'r') as sample_file:
-        filedata = sample_file.read()
-
-    pattern = r'\["(.*)"\]'  # Matches the fields to replace
-    to_fill = re.findall(pattern, filedata)
-
-    for field in to_fill:
-        if field in dic_data_ids:
-            filedata = filedata.replace('["'+field+'"]', dic_data_ids[field])
-        else:
-            raise KeyError(f"Required field '{field}' not found in data. Available fields: {list(dic_data_ids.keys())}")
-
-    # Write output YAML
-    with open(output_file, 'w') as yaml_wf9:
-        yaml_wf9.write(filedata)
-
-def prepare_yaml_precuration(assembly_id, invocation_wf4, invocation_wf9_hap1, invocation_wf9_hap2, output_file, template_file):
-    """
-    Prepare YAML job file for pre-curation workflow (PretextMap generation).
-
-    Args:
-        assembly_id (str): Assembly ID (e.g., 'bTaeGut2')
-        invocation_wf4 (dict): Galaxy invocation object from workflow 4
-        invocation_wf9_hap1 (dict): Galaxy invocation object from workflow 9 haplotype 1
-        invocation_wf9_hap2 (dict): Galaxy invocation object from workflow 9 haplotype 2
-        output_file (str): Path to output YAML file
-        template_file (str): Path to template file
-    """
-    # Get dataset IDs from workflow 4
-    dic_data_ids_wf4 = get_datasets_ids(invocation_wf4)
-
-    # Get dataset IDs from workflow 9 haplotypes
-    dic_data_ids_wf9_hap1 = get_datasets_ids(invocation_wf9_hap1)
-    dic_data_ids_wf9_hap2 = get_datasets_ids(invocation_wf9_hap2)
-
-    # Build the data dictionary with required fields
-    dic_data_ids = {}
-
-    # Get inputs from WF4
-    dic_data_ids['hifi'] = dic_data_ids_wf4.get('HiFi reads without adapters', '')
-    dic_data_ids['hic'] = dic_data_ids_wf4.get('Trimmed Hi-C reads', '')
-
-    # Get haplotypes from WF9
-    dic_data_ids['hap_1'] = dic_data_ids_wf9_hap1.get('Final Decontaminated Assembly', '')
-    dic_data_ids['hap_2'] = dic_data_ids_wf9_hap2.get('Final Decontaminated Assembly', '')
-
-    # Set parameters
-    dic_data_ids['sechap'] = 'true'  # Always use second haplotype
-    dic_data_ids['h1suf'] = 'H1'     # First haplotype suffix
-    dic_data_ids['h2suf'] = 'H2'     # Second haplotype suffix
-
-    # Set trimhic to false - reads are already trimmed by WF4
-    # Pre-curation uses "Trimmed Hi-C reads" output from WF4, which are already processed
-    dic_data_ids['trimhic'] = 'false'
-
-    # Read template and replace placeholders
-    with open(template_file, 'r') as sample_file:
-        filedata = sample_file.read()
-
-    pattern = r'\["(.*)"\]'  # Matches the fields to replace
-    to_fill = re.findall(pattern, filedata)
-
-    for field in to_fill:
-        if field in dic_data_ids:
-            filedata = filedata.replace('["'+field+'"]', dic_data_ids[field])
-        else:
-            raise KeyError(f"Required field '{field}' not found in data. Available fields: {list(dic_data_ids.keys())}")
-
-    # Write output YAML
-    with open(output_file, 'w') as yaml_precuration:
-        yaml_precuration.write(filedata)
