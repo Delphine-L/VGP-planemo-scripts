@@ -13,6 +13,7 @@ This module provides functions for interacting with Galaxy instances:
 import os
 import json
 import time
+import yaml
 from datetime import datetime
 from batch_vgp_run.logging_utils import log_info, log_warning
 
@@ -715,3 +716,189 @@ def batch_update_metadata_from_histories(gi, list_metadata, profile_data, suffix
     print(f"\n{'='*60}")
     print("Finished pre-fetching invocations")
     print(f"{'='*60}\n")
+
+
+def build_replacement_params_from_yaml(gi, invocation_id, job_yaml_path):
+    """
+    Parse a job YAML file and build replacement_params for workflow rerun.
+
+    This reads the user's job YAML file and compares it with the original invocation
+    to detect parameter changes. Changes are returned as a replacement_params dict
+    that can be passed to rerun_invocation.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        invocation_id (str): Original invocation ID
+        job_yaml_path (str): Path to the job YAML file
+
+    Returns:
+        dict: replacement_params dict with changed parameters, or None if no changes
+              Format: {'input_label': value_or_dataset_dict, ...}
+    """
+    if not os.path.exists(job_yaml_path):
+        print(f"    Warning: Job YAML file not found: {job_yaml_path}")
+        return None
+
+    try:
+        # Load the job YAML file
+        with open(job_yaml_path, 'r') as f:
+            job_data = yaml.safe_load(f)
+
+        if not job_data:
+            return None
+
+        # Get original invocation to compare
+        try:
+            invocation = gi.invocations.show_invocation(str(invocation_id))
+        except Exception as e:
+            print(f"    Warning: Could not fetch original invocation: {e}")
+            return None
+
+        # Build replacement_params dict
+        replacement_params = {}
+
+        # Extract original inputs and parameters from invocation
+        original_inputs = {}
+
+        # Get input values from invocation
+        for key, value in invocation.get('inputs', {}).items():
+            label = value.get('label', key)
+            original_inputs[label] = value
+
+        # Get input step parameters
+        for key, value in invocation.get('input_step_parameters', {}).items():
+            label = value.get('label', key)
+            original_inputs[label] = value.get('parameter_value')
+
+        # Compare job YAML with original invocation
+        for label, yaml_value in job_data.items():
+            # Skip if this is a collection or file input with no changes
+            if isinstance(yaml_value, dict):
+                # Check if this is a dataset/collection input
+                if 'class' in yaml_value:
+                    yaml_class = yaml_value['class']
+
+                    # For File inputs with galaxy_id
+                    if yaml_class == 'File' and 'galaxy_id' in yaml_value:
+                        # Check if galaxy_id changed
+                        original_id = None
+                        if label in original_inputs:
+                            orig = original_inputs[label]
+                            if isinstance(orig, dict):
+                                original_id = orig.get('id')
+
+                        if yaml_value['galaxy_id'] != original_id:
+                            # Dataset ID changed - add to replacement
+                            replacement_params[label] = {
+                                'id': yaml_value['galaxy_id'],
+                                'src': 'hda'
+                            }
+
+                    # For Collection inputs with galaxy_id
+                    elif yaml_class == 'Collection' and 'galaxy_id' in yaml_value:
+                        # Check if galaxy_id changed
+                        original_id = None
+                        if label in original_inputs:
+                            orig = original_inputs[label]
+                            if isinstance(orig, dict):
+                                original_id = orig.get('id')
+
+                        if yaml_value['galaxy_id'] != original_id:
+                            # Collection ID changed - add to replacement
+                            replacement_params[label] = {
+                                'id': yaml_value['galaxy_id'],
+                                'src': 'hdca'  # history dataset collection
+                            }
+
+                    # Skip File/Collection inputs that are path-based (not galaxy_id)
+                    # These can't be changed for reruns
+                    continue
+                else:
+                    # Dict but no 'class' - might be a structured parameter
+                    # For now, skip these (uncommon case)
+                    continue
+
+            # Simple parameter value (string, number, boolean, null)
+            else:
+                # Compare with original
+                original_value = original_inputs.get(label)
+
+                # Add to replacement if changed or not in original
+                if yaml_value != original_value:
+                    replacement_params[label] = yaml_value
+
+        if replacement_params:
+            print(f"    Detected {len(replacement_params)} parameter changes in job YAML:")
+            for label, value in list(replacement_params.items())[:5]:  # Show first 5
+                if isinstance(value, dict):
+                    print(f"      - {label}: {value.get('id', value)}")
+                else:
+                    print(f"      - {label}: {value}")
+            if len(replacement_params) > 5:
+                print(f"      ... and {len(replacement_params) - 5} more")
+
+        return replacement_params if replacement_params else None
+
+    except Exception as e:
+        print(f"    Warning: Error parsing job YAML for replacement params: {e}")
+        return None
+
+
+def rerun_failed_invocation(gi, invocation_id, use_cached_job=True, job_yaml_path=None):
+    """
+    Rerun a failed workflow invocation using Galaxy's rerun feature.
+
+    This uses bioblend's rerun_invocation function to restart a failed invocation
+    with the same inputs and parameters, rather than creating a new invocation.
+
+    If a job_yaml_path is provided, the function will check for parameter changes
+    in the YAML file and apply them during the rerun.
+
+    Args:
+        gi (GalaxyInstance): Galaxy instance object
+        invocation_id (str): ID of the failed invocation to rerun
+        use_cached_job (bool): Whether to use cached job results (default: True)
+                               Set to True to reuse successful job results from the failed run
+        job_yaml_path (str): Optional path to job YAML file to check for parameter changes
+
+    Returns:
+        str: New invocation ID from the rerun, or None if rerun failed
+    """
+    try:
+        print(f"  Rerunning invocation {invocation_id}...")
+
+        # Check for parameter changes in job YAML file
+        replacement_params = None
+        if job_yaml_path:
+            replacement_params = build_replacement_params_from_yaml(
+                gi,
+                invocation_id,
+                job_yaml_path
+            )
+            if replacement_params:
+                print(f"    Applying parameter changes from job YAML...")
+            else:
+                print(f"    No parameter changes detected in job YAML")
+
+        # Use bioblend's rerun_invocation function
+        # This will rerun with same inputs/params in the same history
+        # use_cached_job=True reuses successful job results from the failed invocation
+        rerun_response = gi.invocations.rerun_invocation(
+            invocation_id=str(invocation_id),
+            use_cached_job=use_cached_job,
+            replacement_params=replacement_params
+        )
+
+        # Extract new invocation ID from response
+        new_invocation_id = rerun_response.get('id')
+
+        if new_invocation_id:
+            print(f"  ✓ Rerun successful - new invocation: {new_invocation_id}")
+            return str(new_invocation_id)
+        else:
+            print(f"  ✗ Rerun failed - no invocation ID in response")
+            return None
+
+    except Exception as e:
+        print(f"  ✗ Error rerunning invocation {invocation_id}: {e}")
+        return None

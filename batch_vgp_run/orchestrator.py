@@ -39,6 +39,25 @@ from batch_vgp_run.workflow_prep import (
 from batch_vgp_run.logging_utils import log_info, log_warning, log_error
 
 
+def mask_api_key(command, api_key):
+    """
+    Mask API key in a command string for safe display.
+
+    Args:
+        command (str): Command line string containing API key
+        api_key (str): The API key to mask
+
+    Returns:
+        str: Command with API key replaced by masked version
+    """
+    if not api_key or len(api_key) < 8:
+        return command.replace(api_key, '***MASKED***')
+
+    # Show first 4 and last 4 characters, mask the middle
+    masked_key = f"{api_key[:4]}{'*' * (len(api_key) - 8)}{api_key[-4:]}"
+    return command.replace(api_key, masked_key)
+
+
 def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow_data, is_resume=False):
     """
     Run VGP workflows in sequence for a species.
@@ -113,6 +132,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             print(f"No previous run found for Workflow 1. Launching...")
         else:
             print(f"Launching Workflow 1 for {assembly_id}...")
+
+        # Print masked command line
+        masked_cmd = mask_api_key(command_lines['Workflow_1'], galaxy_key)
+        print(f"  Command: {masked_cmd}\n")
 
         # Run planemo and check return code
         return_code = os.system(command_lines['Workflow_1'])
@@ -300,6 +323,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             print(f"Preparing and launching Workflow 4 for {assembly_id}...")
         prepare_yaml_wf4(assembly_id, list_metadata, profile_data)
 
+        # Print masked command line
+        masked_cmd = mask_api_key(command_lines['Workflow_4'], galaxy_key)
+        print(f"  Command: {masked_cmd}\n")
+
         # Run planemo and check return code
         return_code = os.system(command_lines["Workflow_4"])
         log_file = list_metadata[assembly_id]['planemo_logs']['Workflow_4']
@@ -462,6 +489,11 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
             else:
                 print(f"Preparing and launching Workflow 0 for {assembly_id}...")
             prepare_yaml_wf0(assembly_id, list_metadata, wf4_inv, profile_data)
+
+            # Print masked command line (with background operator)
+            masked_cmd = mask_api_key(command_lines['Workflow_0'] + " &", galaxy_key)
+            print(f"  Command: {masked_cmd}\n")
+
             os.system(command_lines["Workflow_0"] + " &")
             print(f"Workflow 0 for {assembly_id} ({species_name}) has been launched in background.\n")
             # Don't wait for JSON since it's running in background
@@ -618,6 +650,11 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
             if wf8_key in command_lines:
                 print(f"  Starting Workflow 8 ({haplotype_name}) in thread...")
+
+                # Print masked command line
+                masked_cmd = mask_api_key(command_lines[wf8_key], galaxy_key)
+                print(f"    Command: {masked_cmd}\n")
+
                 # Launch WITHOUT & - this blocks until planemo finishes
                 return_code = os.system(command_lines[wf8_key])
                 log_file = list_metadata[assembly_id]['planemo_logs'].get(wf8_key)
@@ -1010,6 +1047,11 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
 
             if wf9_key in command_lines:
                 print(f"  Starting Workflow 9 ({haplotype_name}) in thread...")
+
+                # Print masked command line
+                masked_cmd = mask_api_key(command_lines[wf9_key], galaxy_key)
+                print(f"    Command: {masked_cmd}\n")
+
                 # Launch WITHOUT & - this blocks until planemo finishes
                 return_code = os.system(command_lines[wf9_key])
                 log_file = list_metadata[assembly_id]['planemo_logs'].get(wf9_key)
@@ -1190,6 +1232,10 @@ def run_species_workflows(assembly_id, gi, list_metadata, profile_data, workflow
                     job_file,
                     template_file
                 )
+
+                # Print masked command line
+                masked_cmd = mask_api_key(command_lines['Workflow_PreCuration'], galaxy_key)
+                print(f"  Command: {masked_cmd}\n")
 
                 # Launch workflow (planemo will block until complete since --no-wait was removed)
                 return_code = os.system(command_lines["Workflow_PreCuration"])

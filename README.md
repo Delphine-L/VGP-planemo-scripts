@@ -149,7 +149,9 @@ python scripts/get_urls.py -t tracking_runs_species_list.tsv --add -s <Species_N
 - **Incremental metadata saving**: Per-species metadata files preserve progress at each workflow checkpoint
 - **Failed invocation detection**: Automatically detects and reports failed workflows on resume
 - **Intelligent error diagnosis**: Detects WF0 MitoHifi failures due to missing mitochondrial data vs real errors
-- **Automatic retry**: Optional `--retry-failed` flag to re-launch failed workflows
+- **Automatic retry with parameter updates**: Optional `--retry-failed` flag to re-launch failed workflows
+  - **Smart parameter detection**: Automatically detects changes in job YAML files and applies them during rerun
+  - **Job result caching**: Reuses successful jobs from failed runs (configurable with `--no-cache` flag)
 - **Hi-C trimming auto-detection**: Automatically configures trimming based on Hi-C technology (Arima/Dovetail)
 - **Non-blocking execution**: WF0 runs in background; uses `--no_wait` flag to avoid long-running terminal sessions
 - **Stateless design**: Can be safely interrupted and resumed (ideal for cron jobs)
@@ -326,6 +328,7 @@ python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --id --quie
 - **--resume**: Resume a previous run using saved metadata
 - **--sync-metadata**: Sync metadata from Galaxy histories without launching workflows (mutually exclusive with `--resume`)
 - **--retry-failed**: When used with `--resume`, automatically retry failed or cancelled invocations
+- **--no-cache**: When used with `--retry-failed`, disable job result caching and re-run all jobs from scratch
 - **--download-reports**: Download PDF reports for completed invocations (use with `--resume` or `--sync-metadata`)
 - **-q, --quiet**: Quiet mode - only show warnings and errors (suppresses informational messages)
 
@@ -435,6 +438,75 @@ When using `--resume`, the script queries Galaxy histories to find missing invoc
 3. Only adds invocations in other states (running, scheduled, ok) to metadata
 
 This ensures that `--retry-failed` works correctly - failed invocations remain as 'NA' in metadata so they can be relaunched, rather than being re-populated from history.
+
+### Modifying Parameters and Rerunning Failed Workflows
+
+One powerful feature of `--retry-failed` is the ability to **modify job parameters** before rerunning. The script automatically detects changes in job YAML files and applies them during the rerun.
+
+**How it works:**
+
+1. **Failed workflow detected**: Script identifies a failed invocation
+2. **User edits job YAML**: Modify parameters in `<assembly_id>/job_files/wf<N>_<assembly_id>.yml`
+3. **Run with --retry-failed**: Script compares YAML with original invocation
+4. **Changes applied**: Only modified parameters are updated, everything else stays the same
+
+**Example workflow:**
+
+````bash
+# 1. Workflow 4 fails with wrong BUSCO lineage
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --resume --id
+
+# Output shows failure:
+# ⚠  WARNING: Found failed/cancelled invocations:
+#   - bTaeGut2 Workflow_4: failed
+
+# 2. Edit the job YAML file to fix the lineage
+nano bTaeGut2/job_files/wf4_bTaeGut2.yml
+# Change: Lineage: vertebrata_odb10
+# To:     Lineage: aves_odb10
+
+# 3. Rerun with the corrected parameter
+python scripts/run_all.py -t table.tsv -p profile.yaml -m ./metadata --resume --id --retry-failed
+
+# Output shows parameter change detected:
+# Rerunning failed invocations using Galaxy's rerun feature...
+#
+# Job caching enabled: Successful jobs from failed invocations will be reused
+#
+#   bTaeGut2 Workflow_4:
+#   Rerunning invocation abc123...
+#     Detected 1 parameter changes in job YAML:
+#       - Lineage: aves_odb10
+#     Applying parameter changes from job YAML...
+#   ✓ Rerun successful - new invocation: xyz789
+````
+
+**What can be modified:**
+
+- ✓ **Simple parameters**: Numbers, strings, booleans
+  - Examples: `Lineage`, `Ploidy`, `K-mer length`, `Bits for bloom filter`, `Homozygous Read Coverage`
+- ✓ **Dataset IDs**: Change input datasets (files/collections) by modifying `galaxy_id` values
+- ✗ **File paths**: Cannot change GenomeArk URLs (these are resolved during initial upload)
+
+**Job result caching:**
+
+By default, successful jobs from the failed invocation are reused to save time and compute resources. Only failed jobs are re-executed.
+
+````bash
+# Default: reuse successful jobs (faster)
+python scripts/run_all.py --resume --retry-failed
+
+# Disable caching: re-run ALL jobs from scratch (slower)
+python scripts/run_all.py --resume --retry-failed --no-cache
+````
+
+**When to use `--no-cache`:**
+
+- You suspect successful jobs have cached incorrect results
+- You want to ensure completely fresh execution
+- You modified parameters that affect upstream jobs
+
+**Note:** The rerun feature uses Galaxy's native `rerun_invocation` API, which preserves the original invocation history and creates a new linked invocation for the retry.
 
 ### Intelligent Error Detection
 
@@ -594,6 +666,8 @@ cat metadata/results_run.json
 - **Parallel execution**: Process multiple species and haplotypes simultaneously
 - **Flexible metadata management**: Sync mode for cleanup, resume mode for continuing work
 - **Smart retry logic**: `--retry-failed` correctly handles failed invocations without re-adding them from history
+- **Parameter modification support**: Edit job YAML files and rerun with updated parameters automatically applied
+- **Intelligent job caching**: Reuses successful jobs from failed runs to save time (optional `--no-cache` for fresh execution)
 - **Optional report downloads**: Automatically download PDFs during resume/sync
 - **Reproducibility**: All parameters saved in profile and metadata files
 - **Resume-friendly**: Can be interrupted and resumed without data loss, even mid-haplotype execution

@@ -63,6 +63,7 @@ def main():
     parser.add_argument('-v', '--version', action='store_true', required=False, help='(Optional) Force treating profile values as workflow versions. By default, the script auto-detects whether values are IDs or versions.')
     parser.add_argument('-r', '--resume', required=False, action='store_true',  help='Resume a previous run using the metadata json file produced at the end of the run_all.py script and found in the metadata directory.')
     parser.add_argument('--retry-failed', required=False, action='store_true',  help='When used with --resume, automatically retry any failed or cancelled invocations by launching them again.')
+    parser.add_argument('--no-cache', required=False, action='store_true',  help='When used with --retry-failed, disable job result caching. By default, successful jobs from failed invocations are reused. Use this flag to force re-execution of all jobs.')
     parser.add_argument('--fetch-urls', required=False, action='store_true',  help='Fetch GenomeArk file URLs before running workflows. Use this when the input table only contains Species and Assembly columns (no file paths).')
     parser.add_argument('--sync-metadata', required=False, action='store_true',  help='Sync metadata with Galaxy histories: check all invocations, update metadata with latest status and invocation IDs, but do not launch any workflows. Useful for tidying up metadata after manual interventions or to capture background workflow completions.')
     parser.add_argument('--download-reports', required=False, action='store_true',  help='Download PDF reports for completed invocations when using --resume or --sync-metadata. Only works for invocations in terminal states (ok, failed, cancelled). This feature can be unreliable, so errors are logged but do not stop execution.')
@@ -79,6 +80,10 @@ def main():
     # Validate that --retry-failed is only used with --resume
     if args.retry_failed and not args.resume:
         raise SystemExit("Error: --retry-failed can only be used with --resume option.")
+
+    # Validate that --no-cache is only used with --retry-failed
+    if args.no_cache and not args.retry_failed:
+        raise SystemExit("Error: --no-cache can only be used with --retry-failed option.")
 
     # Validate that --fetch-urls is not used with --resume or --sync-metadata
     if args.fetch_urls and (args.resume or args.sync_metadata):
@@ -290,16 +295,19 @@ def main():
                             if state in ['failed', 'cancelled']:
                                 # For Workflow 0 failures, check if it's due to no mitochondrial data
                                 error_detail = state
+                                is_expected_failure = False
                                 if workflow_key == 'Workflow_0':
                                     is_no_mito, mito_error_msg = galaxy_client.check_mitohifi_failure(gi, invocation_id)
                                     error_detail = mito_error_msg
+                                    is_expected_failure = is_no_mito  # Expected failure if no mito reads
 
                                 failed_invocations.append({
                                     'species': species_id,
                                     'workflow': workflow_key,
                                     'invocation': invocation_id,
                                     'state': state,
-                                    'error_detail': error_detail
+                                    'error_detail': error_detail,
+                                    'is_expected': is_expected_failure
                                 })
                         except Exception as e:
                             print(f"Warning: Could not check invocation {invocation_id} for {species_id} {workflow_key}: {e}")
@@ -311,10 +319,12 @@ def main():
                         # Add to failed list (these are already known to be failed)
                         # For Workflow 0, try to get diagnostic info
                         error_detail = 'failed (marked)'
+                        is_expected_failure = False
                         if workflow_key == 'Workflow_0':
                             try:
                                 is_no_mito, mito_error_msg = galaxy_client.check_mitohifi_failure(gi, invocation_id)
                                 error_detail = mito_error_msg
+                                is_expected_failure = is_no_mito  # Expected failure if no mito reads
                             except:
                                 error_detail = 'failed (marked)'
 
@@ -323,7 +333,8 @@ def main():
                             'workflow': workflow_key,
                             'invocation': invocation_id,
                             'state': 'failed (marked)',
-                            'error_detail': error_detail
+                            'error_detail': error_detail,
+                            'is_expected': is_expected_failure
                         })
 
         if failed_invocations:
@@ -342,21 +353,88 @@ def main():
             print(f"{'='*60}")
 
             if args.retry_failed:
-                print("Resetting failed invocations to allow retry...\n")
-                for failed in failed_invocations:
-                    # Reset invocation to NA so it can be retried
-                    list_metadata[failed['species']]['invocations'][failed['workflow']] = 'NA'
-                    # Remove from failed_invocations list
-                    if 'failed_invocations' in list_metadata[failed['species']]:
-                        if failed['workflow'] in list_metadata[failed['species']]['failed_invocations']:
-                            inv_list = list_metadata[failed['species']]['failed_invocations'][failed['workflow']]
-                            if failed['invocation'] in inv_list:
-                                inv_list.remove(failed['invocation'])
-                            # Clean up empty lists
-                            if not inv_list:
-                                del list_metadata[failed['species']]['failed_invocations'][failed['workflow']]
-                    print(f"  Reset {failed['species']} {failed['workflow']}")
-                print("\nFailed workflows will be re-launched during this run.\n")
+                # Separate expected failures from retriable failures
+                retriable_failures = [f for f in failed_invocations if not f.get('is_expected', False)]
+                expected_failures = [f for f in failed_invocations if f.get('is_expected', False)]
+
+                if expected_failures:
+                    print(f"\nℹ️  Skipping {len(expected_failures)} expected failure(s) (will not retry):")
+                    for failed in expected_failures:
+                        print(f"  - {failed['species']} {failed['workflow']}: {failed['error_detail']}")
+                        print(f"    (Expected: sample likely has no mitochondrial sequences)")
+                    print()
+
+                if not retriable_failures:
+                    print("No retriable failures found (all failures are expected).\n")
+                else:
+                    print(f"Rerunning {len(retriable_failures)} failed invocation(s) using Galaxy's rerun feature...\n")
+
+                    # Determine whether to use job caching
+                    use_cached_job = not args.no_cache
+                    if args.no_cache:
+                        print("Job caching disabled (--no-cache): All jobs will be re-executed from scratch\n")
+                    else:
+                        print("Job caching enabled: Successful jobs from failed invocations will be reused\n")
+
+                    rerun_count = 0
+                    failed_rerun_count = 0
+                    suffix_run = profile_data.get('Suffix', '')
+
+                    for failed in retriable_failures:
+                        species_id = failed['species']
+                        workflow_key = failed['workflow']
+                        old_invocation_id = failed['invocation']
+
+                        print(f"  {species_id} {workflow_key}:")
+
+                        # Get job YAML path from metadata (if available)
+                        job_yaml_path = None
+                        if species_id in list_metadata:
+                            job_files = list_metadata[species_id].get('job_files', {})
+                            job_yaml_path = job_files.get(workflow_key)
+
+                        # Use Galaxy's rerun_invocation API to restart the workflow
+                        # This will check the job YAML for parameter changes and apply them
+                        new_invocation_id = galaxy_client.rerun_failed_invocation(
+                            gi,
+                            old_invocation_id,
+                            use_cached_job=use_cached_job,  # Controlled by --no-cache flag
+                            job_yaml_path=job_yaml_path  # Check for user modifications
+                        )
+
+                        if new_invocation_id:
+                            # Update metadata with new invocation ID
+                            list_metadata[species_id]['invocations'][workflow_key] = new_invocation_id
+
+                            # Remove old invocation from failed_invocations list
+                            if 'failed_invocations' in list_metadata[species_id]:
+                                if workflow_key in list_metadata[species_id]['failed_invocations']:
+                                    inv_list = list_metadata[species_id]['failed_invocations'][workflow_key]
+                                    if old_invocation_id in inv_list:
+                                        inv_list.remove(old_invocation_id)
+                                    # Clean up empty lists
+                                    if not inv_list:
+                                        del list_metadata[species_id]['failed_invocations'][workflow_key]
+
+                            # Save metadata for this species immediately
+                            try:
+                                metadata.save_species_metadata(species_id, list_metadata, profile_data, suffix_run)
+                                print(f"    ✓ Metadata saved with new invocation ID")
+                            except Exception as e:
+                                print(f"    Warning: Could not save metadata: {e}")
+
+                            rerun_count += 1
+                        else:
+                            # Rerun failed - keep the failed invocation in metadata
+                            print(f"    ✗ Rerun failed - keeping original failed invocation")
+                            failed_rerun_count += 1
+
+                    print(f"\n✓ Successfully reran {rerun_count} workflows")
+                    if failed_rerun_count > 0:
+                        print(f"✗ Failed to rerun {failed_rerun_count} workflows (check errors above)")
+                    if expected_failures:
+                        print(f"ℹ️  Skipped {len(expected_failures)} expected failure(s) (no mitochondrial data)")
+                    print()
             else:
                 print("These workflows will be skipped unless you re-run them manually or remove their invocation IDs from metadata.")
                 print("Use --retry-failed flag to automatically retry failed invocations.\n")
